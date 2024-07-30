@@ -1,0 +1,77 @@
+---
+title: "rainfall_plot"
+output: html_document
+date: "2024-07-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(MetBrewer)
+library(reshape2)
+```
+
+```{r}
+nov_rain <- read.csv("../metadata/rainfall_new_day_statewide_partial_station_data_2022_11.csv")
+dec_rain <- read.csv("../metadata/rainfall_new_day_statewide_partial_station_data_2022_12.csv")
+```
+
+```{r}
+nov_rain <- nov_rain[grepl("Lyon", nov_rain$Station.Name),]
+nov_rain <- nov_rain[,grepl("X", names(nov_rain))]
+
+dec_rain <- dec_rain[grepl("Lyon", dec_rain$Station.Name),]
+dec_rain <- dec_rain[,grepl("X", names(dec_rain))]
+
+
+nov30 <- nov_rain[,grepl("30", names(nov_rain)), drop=F]
+dec1to16 <- dec_rain[,1:16, drop=F]
+
+nov30_long <- melt(nov30)
+dec1to16_long = melt(dec1to16)
+
+all_precip <- rbind(nov30_long, dec1to16_long)
+names(all_precip) <- c("Date", "Precipitation")
+
+all_precip$Date <- substring(all_precip$Date, 2)
+all_precip$Date <- as.Date(all_precip$Date, "%Y.%m.%d")
+all_precip$Precipitation[is.na(all_precip$Precipitation)] <- 0
+```
+
+
+Plot
+```{r}
+# Specify breaks as a Date vector
+datebreaks <- seq(as.Date("2022-11-30"), as.Date("2022-12-16"), by = "1 day")
+
+  
+bar <- ggplot(all_precip, aes(x=Date, y=Precipitation)) +
+  geom_bar(stat="identity", fill = met.brewer("Archambault")[1]) +
+  xlab("Date") +
+  ylab("Precipitation (mm)") +
+  theme(axis.text.x = element_text(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.line = element_line(colour="black"),
+        axis.text.y = element_text(colour="black"),
+        legend.position = "none") +
+  #theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  scale_x_date(breaks = scales::pretty_breaks(8))
+   # scale_x_continuous(breaks = all_precip$Date, labels = all_precip$Date)
+     #scale_x_date(labels = scales::date_format("%Y-%m-%d"), breaks=datebreaks) 
+```
+
+```{r}
+ggsave("../figures/lyon_rainfall_bargraph.png", bar, width=8, height=5)
+ggsave("../figures/lyon_rainfall_bargraph.pdf", bar, width=8, height=5)
+```
+
+
+
+
+

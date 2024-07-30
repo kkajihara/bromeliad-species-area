@@ -1,0 +1,422 @@
+---
+title: "metadata_multiple_regression"
+author: "Kacie Kajihara"
+date: "2024-06-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(relaimpo)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(stargazer)
+```
+
+
+```{r}
+bro_metadata <- read.csv("../metadata/sar_metadata_clean - Sheet1.csv")
+
+brostuff <- bro_metadata %>% tidyr::separate(Label, c("Project", "bro_num", "num"))
+brostuff$bro_num <- paste0(brostuff$bro_num, brostuff$num)
+
+fung_regress_dat_list <- readRDS("../intermediates/truly_nonpooled_fung_regress_data_list.rds")
+
+fung_inv_regress_dat <- fung_regress_dat_list[[1]]
+fung_det_regress_dat <- fung_regress_dat_list[[2]]
+fung_water_regress_dat <- fung_regress_dat_list[[3]]
+
+bact_regress_dat_list <- readRDS("../intermediates/truly_nonpooled_bact_regress_data_list.rds")
+
+bact_inv_regress_dat <- bact_regress_dat_list[[1]]
+bact_det_regress_dat <- bact_regress_dat_list[[2]]
+bact_water_regress_dat <- bact_regress_dat_list[[3]]
+
+```
+
+```{r}
+detritus_wt_meta <- brostuff %>% dplyr::select(bro_num,
+                                            Diameter,
+                                            Height,
+                                            Complexity,
+                                            Number.of..invertebrates,
+                                            X.C..detritus.,
+                                            X.N..detritus.)
+
+names(detritus_wt_meta) <- c("bro_num", "Diameter", "Height", "Complexity", "Invertebrate_number",
+                            "pctC_detritus", "pctN_detritus")
+
+#detritus_wt_meta <- column_to_rownames(detritus_wt_meta, "bro_num")
+
+water_vol_meta <- brostuff %>% dplyr::select(bro_num,
+                                            Diameter,
+                                            Height,
+                                            Complexity,
+                                            Number.of..invertebrates,
+                                            Dissolved.Oyxgen,
+                                            pH,
+                                            Temperature,
+                                            Nitrate..Water.)
+
+names(water_vol_meta) <- c("bro_num", "Diameter", "Height", "Complexity", "Invertebrate_number",
+                            "Dissolved_oxygen", "pH", "Temperature", "Nitrate_water")
+
+#water_vol_meta <- column_to_rownames(water_vol_meta, "bro_num")
+```
+
+```{r}
+# dw_gg <- GGally::ggpairs(detritus_wt_meta[,-1]) + theme_bw()
+# 
+# wv_gg <- GGally::ggpairs(water_vol_meta[,-1]) + theme_bw()
+```
+
+```{r}
+append_meta <- function(regress_data, metadata) {
+  num = ncol(regress_data)
+  
+  for (i in 1:ncol(metadata)) {
+    regress_data[,num+i] = metadata[,i][match(regress_data$Bro1, metadata$bro_num)]
+    names(regress_data)[num+i] = names(metadata)[i]
+  }
+  
+  regress_data <- dplyr::select(regress_data, -c(Bro1, repnum))
+  return(regress_data)
+}
+
+test = append_meta(fung_det_regress_dat, detritus_wt_meta)
+
+testlm <- lm(log_richness ~ log(detritus_wt) + Diameter + Height + Complexity + Invertebrate_number +
+             + pctC_detritus + pctN_detritus, data = test)
+
+testlm <- lm(log_richness ~ log(detritus_wt) + Diameter + Height , data = test)
+
+hm <- calc.relimp(testlm)
+
+wha <- stepAIC(testlm, direction="both")
+```
+
+### Fungi metadata multiple regression
+```{r, echo=F, message=F, results='hide'}
+# detritus weight
+fung_detwt_list <- list(fung_inv_regress_dat,
+                      fung_det_regress_dat)
+
+fung_detwt_dat_meta <- fung_detwt_lms <- fung_detwt_relimp <- fung_detwt_aicmod <- list()
+  
+for (i in 1:length(fung_detwt_list)) {
+  
+  fung_detwt_dat_meta[[i]] <- append_meta(fung_detwt_list[[i]], detritus_wt_meta)
+  
+  fung_detwt_dat_meta_nona <- lapply(fung_detwt_dat_meta, na.exclude)
+
+  fung_detwt_lms[[i]] <- lm(log_richness ~ log(detritus_wt) + Diameter + Height
+                         + Complexity + Invertebrate_number + pctC_detritus + pctN_detritus, 
+                         data = fung_detwt_dat_meta_nona[[i]])
+  
+  fung_detwt_relimp[[i]] <- calc.relimp(fung_detwt_lms[[i]])
+  
+  fung_detwt_aicmod[[i]] <- holding <- stepAIC(fung_detwt_lms[[i]])
+
+}
+
+
+
+# water volume
+fung_wvol_list <- list(fung_inv_regress_dat,
+                      fung_water_regress_dat)
+
+fung_wvol_dat_meta <- fung_wvol_lms <- fung_wvol_relimp <- fung_wvol_aicmod <- list()
+  
+for (i in 1:length(fung_wvol_list)) {
+  
+  fung_wvol_dat_meta[[i]] <- append_meta(fung_wvol_list[[i]], water_vol_meta)
+  
+  fung_wvol_dat_meta_nona <- lapply(fung_wvol_dat_meta, na.exclude)
+
+  fung_wvol_lms[[i]] <- lm(log_richness ~ log(water_volume) + Diameter + Height
+                         + Complexity + Invertebrate_number + Dissolved_oxygen + pH + Temperature + Nitrate_water,
+                         data = fung_wvol_dat_meta_nona[[i]])
+  
+  fung_wvol_relimp[[i]] <- calc.relimp(fung_wvol_lms[[i]])
+  
+  fung_wvol_aicmod[[i]] <- stepAIC(fung_wvol_lms[[i]])
+}
+
+
+```
+
+#### Inverts - detritus weight
+
+Model summary
+```{r, echo=F}
+summary(fung_detwt_lms[[1]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+fung_detwt_relimp[[1]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(fung_detwt_aicmod[[1]])
+```
+
+#### Detritus - detritus weight
+
+Model summary
+```{r, echo=F}
+summary(fung_detwt_lms[[2]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+fung_detwt_relimp[[2]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(fung_detwt_aicmod[[2]])
+```
+
+#### Inverts - water volume
+
+Model summary
+```{r, echo=F}
+summary(fung_wvol_lms[[1]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+fung_wvol_relimp[[1]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(fung_wvol_aicmod[[1]])
+```
+
+#### Water filters - water volume
+
+Model summary
+```{r, echo=F}
+summary(fung_wvol_lms[[2]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+fung_wvol_relimp[[2]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(fung_wvol_aicmod[[2]])
+```
+
+
+### Bacteria metadata multiple regression
+```{r, echo=F, message=F, results='hide'}
+# detritus weight
+bact_detwt_list <- list(bact_inv_regress_dat,
+                      bact_det_regress_dat)
+
+bact_detwt_dat_meta <- bact_detwt_lms <- bact_detwt_relimp <- bact_detwt_aicmod <- list()
+  
+for (i in 1:length(bact_detwt_list)) {
+  
+  bact_detwt_dat_meta[[i]] <- append_meta(bact_detwt_list[[i]], detritus_wt_meta)
+
+  bact_detwt_lms[[i]] <- lm(log_richness ~ log(detritus_wt) + Diameter + Height
+                         + Complexity + Invertebrate_number + pctC_detritus + pctN_detritus, 
+                         data = bact_detwt_dat_meta[[i]])
+  
+  bact_detwt_relimp[[i]] <- calc.relimp(bact_detwt_lms[[i]])
+  
+  bact_detwt_aicmod[[i]] <- stepAIC(bact_detwt_lms[[i ]])
+}
+
+
+
+# water volume
+bact_wvol_list <- list(bact_inv_regress_dat,
+                      bact_water_regress_dat)
+
+bact_wvol_dat_meta <- bact_wvol_lms <- bact_wvol_relimp <- bact_wvol_aicmod <- list()
+  
+for (i in 1:length(bact_wvol_list)) {
+  
+  bact_wvol_dat_meta[[i]] <- append_meta(bact_wvol_list[[i]], water_vol_meta)
+  
+  bact_wvol_dat_meta_nona <- lapply(bact_wvol_dat_meta, na.exclude)
+
+  bact_wvol_lms[[i]] <- lm(log_richness ~ log(water_volume) + Diameter + Height
+                         + Complexity + Invertebrate_number + Dissolved_oxygen + pH + Temperature + Nitrate_water,
+                         data = bact_wvol_dat_meta_nona[[i]])
+  
+  bact_wvol_relimp[[i]] <- calc.relimp(bact_wvol_lms[[i]])
+  
+  bact_wvol_aicmod[[i]] <- stepAIC(bact_wvol_lms[[i ]])
+}
+
+```
+
+#### Inverts - detritus weight
+
+Model summary
+```{r, echo=F}
+summary(bact_detwt_lms[[1]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+bact_detwt_relimp[[1]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(bact_detwt_aicmod[[1]])
+```
+
+#### Detritus - detritus weight
+
+Model summary
+```{r, echo=F}
+summary(bact_detwt_lms[[2]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+bact_detwt_relimp[[2]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(bact_detwt_aicmod[[2]])
+```
+
+#### Inverts - water volume
+
+Model summary
+```{r, echo=F}
+summary(bact_wvol_lms[[1]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+bact_wvol_relimp[[1]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(bact_wvol_aicmod[[1]])
+```
+
+#### Water filters - water volume
+
+Model summary
+```{r, echo=F}
+summary(bact_wvol_lms[[2]])
+```
+
+Relative importance of each predictor
+```{r, echo=F}
+bact_wvol_relimp[[2]]
+```
+
+Stepwise AIC selected model
+```{r, echo=F}
+summary(bact_wvol_aicmod[[2]])
+```
+
+
+## Significant predictors from each AIC-selected model
+
+```{r, echo=F}
+xx = data.frame(Locus = c(rep("Fungi", 4), rep("Bacteria", 4)),
+           Compartment = rep(c("Inverts", "Detritus", "Inverts", "Water"), 2),
+           Significant_predictors = c("None",
+                                      "log(detritus_wt), Diameter, Invertebrate_number, pctC_detritus",
+                                      "None",
+                                      "pH, Temperature, Nitrate_water",
+                                      
+                                      "None",
+                                      "log(detritus_wt), Diameter, Height, Complexity, Invertebrate_number, pctC_detritus",
+                                      "log(water_volume), pH (marginal)",
+                                      "Diameter, Height (marginal), Complexity (marginal), pH (marginal)")
+           
+           )
+
+rmarkdown::paged_table(xx)
+```
+
+## relative importance
+
+```{r}
+fff <- lapply(fung_detwt_relimp, function(x) x$lmg)
+
+fff2 <- lapply(fung_wvol_relimp, function(x) x$lmg)
+
+fdw <- cbind(as.data.frame(fff[[1]]), as.data.frame(fff[[2]]))
+
+fwv <- cbind(as.data.frame(fff2[[1]]), as.data.frame(fff2[[2]]))
+
+
+bbb <- lapply(bact_detwt_relimp, function(x) x$lmg)
+
+bbb2 <- lapply(bact_wvol_relimp, function(x) x$lmg)
+
+bdw <- cbind(as.data.frame(bbb[[1]]), as.data.frame(bbb[[2]]))
+
+bwv <- cbind(as.data.frame(bbb2[[1]]), as.data.frame(bbb2[[2]]))
+
+
+all_dw <- cbind(fdw, bdw)
+names(all_dw) <- c("Fungi, Invertebrates", "Fungi, Detritus", "Bacteria, Invertebrates", "Bacteria, Detritus")
+hm <- as.data.frame(t(all_dw))
+
+all_wv <- cbind(fwv, bwv)
+names(all_wv) <- c("Fungi, Invertebrates", "Fungi, Water", "Bacteria, Invertebrates", "Bacteria, Water")
+
+write.csv(all_dw, "../outputs/for_manuscript/detritus_weight_relimp.csv")
+write.csv(all_wv, "../outputs/for_manuscript/water_volume_relimp.csv")
+
+```
+
+Stargazer table making
+
+```{r}
+dw_list <- list(fung_detwt_aicmod[[2]],
+           fung_detwt_aicmod[[1]],
+           bact_detwt_aicmod[[2]],
+           bact_detwt_aicmod[[1]])
+
+stargazer(dw_list,
+          type = "html",
+          digits = 3,
+          header = FALSE,
+          title= "Regression Results",
+          out = "detritus_wt_mult_regress.htm",
+          report=('vc*p')
+         )
+
+
+wv_list <- list(fung_wvol_aicmod[[2]],
+           fung_wvol_aicmod[[1]],
+           bact_wvol_aicmod[[2]],
+           bact_wvol_aicmod[[1]])
+
+stargazer(wv_list,
+          type = "html",
+          digits = 3,
+          header = FALSE,
+          title= "Regression Results",
+          out = "water_vol_mult_regress.htm",
+          report=('vc*p')
+         )
+```
+
+

@@ -1,0 +1,335 @@
+---
+title: "betadiv_mantel"
+output: html_document
+date: "2024-06-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(patchwork)
+library(MetBrewer)
+```
+
+```{r}
+fung_regress_data_list <- readRDS("../intermediates/truly_nonpooled_fung_regress_data_list.rds")
+bact_regress_data_list <- readRDS("../intermediates/truly_nonpooled_bact_regress_data_list.rds")
+
+fung_inv_regress_dat <- fung_regress_data_list[[1]]
+fung_det_regress_dat <- fung_regress_data_list[[2]]
+fung_water_regress_dat <- fung_regress_data_list[[3]]
+
+fung_air_regress_dat <- readRDS("../intermediates/truly_nonpooled_fung_air_data.rds")
+
+bact_inv_regress_dat <- bact_regress_data_list[[1]]
+bact_det_regress_dat <- bact_regress_data_list[[2]]
+bact_water_regress_dat <- bact_regress_data_list[[3]]
+
+bact_air_regress_dat <- readRDS("../intermediates/truly_nonpooled_bact_air_data.rds")
+
+fung_data <- readRDS("../intermediates/culled_fung_asv_table_decontamed_nonpooled.rds")
+fung_data <- as.data.frame(t(fung_data))
+bact_data <- readRDS("../intermediates/culled_bact_asv_table_decontamed_nonpooled.rds")
+bact_data <- as.data.frame(t(bact_data))
+
+
+fung_rep_dat_full <- readRDS("../intermediates/fung_replication_data_v2.rds")
+
+bact_rep_dat_full <- readRDS("../intermediates/bact_replication_data_v2.rds")
+```
+
+Test - fungi detritus
+```{r}
+
+# test_asvtab <- fung_data[grepl("D", rownames(fung_data)),]
+# test_asvtab <- test_asvtab[,colSums(test_asvtab)>0]
+# 
+# test_distmat <- vegdist(test_asvtab, method = "bray")
+# 
+# 
+# detwt_f <- dplyr::select(fung_det_regress_dat, pooled_sample, detritus_wt)
+# rownames(detwt_f) <- NULL
+# detwt_f <- tibble::column_to_rownames(detwt_f, "pooled_sample")
+# 
+# 
+# 
+# detwt_distmat <- vegdist(detwt_f, "bray")
+# 
+# 
+# manty <- mantel(test_distmat, detwt_distmat, method = "spearman", permutations = 9999, na.rm = TRUE)
+# 
+# 
+# mat = data.frame(aa = as.vector(test_distmat),
+#                  tt = as.vector(detwt_distmat))
+# 
+# ggplot()
+# 
+# #abundance vs temperature
+# mm = ggplot(mat, aes(y = aa, x = tt)) + 
+#     geom_point(size = 3, alpha = 0.5) + 
+#     labs(x = "Detritus weight", y = "Bray-Curtis Dissimilarity") + 
+#   theme_classic()
+# 
+# mm
+
+
+mantel_and_plot <- function(asv_table, regress_data, compartment_abbrev, locus, compartment,
+                            wvol_scatter_color = "black", detwt_scatter_color = "black",
+                            wvol_line_color = "gray", detwt_line_color = "gray") {
+  sub_asvtab <- asv_table[grepl(compartment_abbrev, rownames(asv_table)),]
+  sub_asvtab <- sub_asvtab[,colSums(sub_asvtab)>0]
+  sub_asvtab <- sub_asvtab[order(row.names(sub_asvtab)), ]
+  
+  commcomp_distmat <- vegdist(sub_asvtab, method = "bray")
+  
+  detwt_tab <- dplyr::select(regress_data, sample, detritus_wt)
+  rownames(detwt_tab) <- NULL
+  detwt_tab <- tibble::column_to_rownames(detwt_tab, "sample")
+  detwt_tab <- detwt_tab[order(row.names(detwt_tab)),,drop=FALSE]
+  
+  
+  detwt_distmat <- vegdist(detwt_tab, "bray")
+  
+  wvol_tab <- dplyr::select(regress_data, sample, water_volume)
+  rownames(wvol_tab) <- NULL
+  wvol_tab <- tibble::column_to_rownames(wvol_tab, "sample")
+  wvol_tab <- wvol_tab[order(row.names(wvol_tab)),,drop=FALSE]
+  
+  wvol_distmat <- vegdist(wvol_tab, "bray")
+  
+  ifelse(
+    all(
+      colnames(as.data.frame(as.matrix(commcomp_distmat))) == colnames(as.data.frame(as.matrix(detwt_distmat)))
+      ),
+    print("all bros lined up correctly between matrices"), 
+    print("bros not lined up between matrices, check!"))
+  
+  # mantel
+  set.seed(2342)
+  detwt_mantel <- mantel(commcomp_distmat, detwt_distmat, method = "spearman", permutations = 9999, na.rm = TRUE)
+  
+  print("finished one mantel, halfway there!")
+  
+  wvol_mantel <- mantel(commcomp_distmat, wvol_distmat, method = "spearman", permutations = 9999, na.rm = TRUE)
+  
+  # plot
+  plot_dat <- data.frame(commcomp = as.vector(commcomp_distmat),
+                         detritus_wt = as.vector(detwt_distmat),
+                         water_volume = as.vector(wvol_distmat))
+  
+  detwt_plot = ggplot(plot_dat, aes(y = commcomp, x = detritus_wt)) + 
+    geom_point(size = 3, alpha = 0.35, color = detwt_scatter_color) + 
+    labs(x = "Detritus weight", y = "Bray-Curtis Dissimilarity", 
+         # subtitle = paste0("Mantel: r = ", round(detwt_mantel$statistic,4), ", ", "p = ", round(detwt_mantel$signif,4)),
+         title = paste0(locus, ", ", compartment)) + 
+    theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+  
+  if (detwt_mantel$signif<=0.05) {
+    detwt_plot <- detwt_plot + stat_smooth(method = "lm", 
+                                                   formula = y ~ x, 
+                                                   geom = "smooth",
+                                                   se = F,
+                                                   color = detwt_line_color)
+  } else {
+    detwt_plot
+  }
+
+                                        
+  wvol_plot = ggplot(plot_dat, aes(y = commcomp, x = water_volume)) + 
+    geom_point(size = 3, alpha = 0.35, color = wvol_scatter_color) + 
+    labs(x = "Water volume", y = "Bray-Curtis Dissimilarity", 
+         # subtitle = paste0("Mantel: r = ", round(wvol_mantel$statistic,4), ", ", "p = ", round(wvol_mantel$signif,4)),
+         title = paste0(locus, ", ", compartment)) + 
+    theme_classic() +
+      theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+  
+    if (wvol_mantel$signif<=0.05) {
+    wvol_plot <- wvol_plot + stat_smooth(method = "lm", 
+                                                   formula = y ~ x, 
+                                                   geom = "smooth",
+                                                   se = F,
+                                                   color = wvol_line_color)
+  } else {
+    wvol_plot
+  }
+
+  return(list(detwt_plot, wvol_plot))
+}
+
+
+fung_det_mplots <- mantel_and_plot(asv_table = fung_data,
+                      regress_data = fung_det_regress_dat,
+                      compartment_abbrev = ".D.",
+                      locus = "Fungi",
+                      compartment = "Detritus",
+                      
+                      detwt_scatter_color = stepped2()[8],
+                      detwt_line_color = stepped2()[6])
+
+fung_inv_mplots <- mantel_and_plot(asv_table = fung_data,
+                      regress_data = fung_inv_regress_dat,
+                      compartment_abbrev = ".I.",
+                      locus = "Fungi",
+                      compartment = "Invertebrates",
+                      
+                      detwt_scatter_color = stepped2()[16],
+                      detwt_line_color = stepped2()[14],
+                      wvol_scatter_color = stepped2()[20],
+                      wvol_line_color = stepped2()[18])
+
+fung_water_mplots <- mantel_and_plot(asv_table = fung_data,
+                      regress_data = fung_water_regress_dat,
+                      compartment_abbrev = "W",
+                      locus = "Fungi",
+                      compartment = "Water",
+                      
+                      wvol_scatter_color = stepped2()[4],
+                      wvol_line_color = stepped2()[2])
+
+
+bact_det_mplots <- mantel_and_plot(asv_table = bact_data,
+                      regress_data = bact_det_regress_dat,
+                      compartment_abbrev = "_D_",
+                      locus = "Bacteria",
+                      compartment = "Detritus",
+                      
+                      detwt_scatter_color = stepped2()[8],
+                      detwt_line_color = stepped2()[6])
+
+bact_inv_mplots <- mantel_and_plot(asv_table = bact_data,
+                      regress_data = bact_inv_regress_dat,
+                      compartment_abbrev = "_I_",
+                      locus = "Bacteria",
+                      compartment = "Invertebrates",
+                      
+                      detwt_scatter_color = stepped2()[16],
+                      detwt_line_color = stepped2()[14],
+                      wvol_scatter_color = stepped2()[20],
+                      wvol_line_color = stepped2()[18])
+
+bact_water_mplots <- mantel_and_plot(asv_table = bact_data,
+                      regress_data = bact_water_regress_dat,
+                      compartment_abbrev = "W02",
+                      locus = "Bacteria",
+                      compartment = "Water",
+                      
+                      wvol_scatter_color = stepped2()[4],
+                      wvol_line_color = stepped2()[2])
+  
+
+```
+Air plots
+```{r}
+# fungi
+fung_air_asvtab <- fung_data[grepl("S1|S2", rownames(fung_data)),]
+fung_air_asvtab <- fung_air_asvtab[,colSums(fung_air_asvtab)>0]
+
+fung_air_distmat <- vegdist(fung_air_asvtab, method = "bray")
+
+fung_airvol_tab <- dplyr::select(fung_air_regress_dat, sample, air_volume)
+rownames(fung_airvol_tab) <- NULL
+fung_airvol_tab <- tibble::column_to_rownames(fung_airvol_tab, "sample")
+
+all(rownames(fung_air_asvtab) == rownames(fung_airvol_tab))
+
+fung_airvol_distmat <- vegdist(fung_airvol_tab, "bray")
+
+# mantel
+fung_air_mantel <- mantel(fung_air_distmat, fung_airvol_distmat, method = "spearman", permutations = 9999, na.rm = TRUE)
+
+
+# plot
+fung_air_plot_dat <- data.frame(commcomp = as.vector(fung_air_distmat),
+                       air_volume = as.vector(fung_airvol_distmat))
+
+fung_air_plot = ggplot(fung_air_plot_dat, aes(y = commcomp, x = air_volume)) + 
+  geom_point(size = 3, alpha = 0.7, color = stepped2()[11]) + 
+  labs(x = "Air volume", y = "Bray-Curtis Dissimilarity", 
+       #subtitle = paste0("Mantel: r = ", round(fung_air_mantel$statistic,4), ", ", "p = ", round(fung_air_mantel$signif,4)),
+       title = paste("Fungi,", "Air volume")) + 
+  # stat_smooth(method = "lm", 
+  #           formula = y ~ x, 
+  #           geom = "smooth",
+  #           se = F,
+  #           color = met.brewer("Renoir")[7]) +
+  theme_classic() +
+    theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+
+# bacteria
+bact_air_asvtab <- bact_data[grepl("_S1_|_S2_", rownames(bact_data)),]
+bact_air_asvtab <- bact_air_asvtab[,colSums(bact_air_asvtab)>0]
+
+bact_air_distmat <- vegdist(bact_air_asvtab, method = "bray")
+
+bact_airvol_tab <- dplyr::select(bact_air_regress_dat, sample, air_volume)
+rownames(bact_airvol_tab) <- NULL
+bact_airvol_tab <- tibble::column_to_rownames(bact_airvol_tab, "sample")
+
+all(rownames(bact_air_asvtab) == rownames(bact_airvol_tab))
+
+bact_airvol_distmat <- vegdist(bact_airvol_tab, "bray")
+
+# mantel
+bact_air_mantel <- mantel(bact_air_distmat, bact_airvol_distmat, method = "spearman", permutations = 9999, na.rm = TRUE)
+
+
+# plot
+bact_air_plot_dat <- data.frame(commcomp = as.vector(bact_air_distmat),
+                       air_volume = as.vector(bact_airvol_distmat))
+
+bact_air_plot = ggplot(bact_air_plot_dat, aes(y = commcomp, x = air_volume)) + 
+  geom_point(size = 3, alpha = 0.7, color = stepped2()[11]) + 
+  # stat_smooth(method = "lm",
+  #           formula = y ~ x,
+  #           geom = "smooth",
+  #           se = F,
+  #           color = met.brewer("Renoir")[7]) +
+  labs(x = "Air volume", y = "Bray-Curtis Dissimilarity", 
+       #subtitle = paste0("Mantel: r = ", round(bact_air_mantel$statistic,4), ", ", "p = ", round(bact_air_mantel$signif,4)),
+       title = paste("Bacteria,", "Air volume")) + 
+  theme_classic() +
+    theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+
+```
+
+
+
+```{r}
+# all_fung_mplots <- fung_inv_mplots[[2]] + fung_inv_mplots[[1]] + 
+#   fung_water_mplots[[2]] + fung_det_mplots[[1]] + fung_air_plot + plot_layout(nrow = 3)
+# 
+# ggsave("../figures/truly_nonpool_fung_betadiv_mantel_plots_with_trendline.png", all_fung_mplots, width=9.5, height=12)
+# 
+# all_bact_mplots <- bact_inv_mplots[[2]] + bact_inv_mplots[[1]] + 
+#   bact_water_mplots[[2]] + bact_det_mplots[[1]] + bact_air_plot + plot_layout(nrow = 3)
+#   
+# ggsave("../figures/truly_nonpool_bact_betadiv_mantel_plots_with_trendline.png", all_bact_mplots, width=9.5, height=12)
+
+all_plots <- fung_det_mplots[[1]] + fung_water_mplots[[2]] + fung_inv_mplots[[1]] + fung_inv_mplots[[2]] +
+  bact_det_mplots[[1]] + bact_water_mplots[[2]] + bact_inv_mplots[[1]] + bact_inv_mplots[[2]] + 
+  plot_layout(nrow=2)
+  
+ggsave("../figures/for_manuscript/all_betadiv_mantel_plots.png", all_plots, width=16, height=7.5)
+ggsave("../figures/for_manuscript/all_betadiv_mantel_plots.pdf", all_plots, width=16, height=7.5)
+
+air_plots <- fung_air_plot + bact_air_plot
+
+ggsave("../figures/for_manuscript/air_mantel_plots.png", air_plots, width= 10, height=4.5)
+ggsave("../figures/for_manuscript/air_mantel_plots.pdf", air_plots, width= 10, height=4.5)
+
+library(unikn)
+library(pals)
+seecol(pals::stepped2())
+  
+```
+

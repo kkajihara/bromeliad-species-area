@@ -1,0 +1,384 @@
+---
+title: "rarefied_pooled_accum_curves_shannon"
+output: html_document
+date: "2024-05-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(devtools)
+install_version("iNEXT", version = "2.0.19", repos = "http://cran.us.r-project.org")
+
+library(iNEXT)
+```
+
+```{r}
+fung_data <- readRDS("../intermediates/fung_rarefied_pooled_asv_table.rds")
+bact_data <- as.data.frame(readRDS("../intermediates/bact_rarefied_pooled_asv_table.rds"))
+```
+
+```{r}
+# fung_inext_results <- list()
+# 
+# for (i in 1:length(fung_data)) {
+#   dat <- fung_data[[i]]
+#   counts <- sapply(dat, sum)
+#   end <- max(counts)
+#   
+#   curve_calc <- iNEXT(dat, nboot = 200, endpoint = (end*2))
+#   
+#   fung_inext_results[[i]] <- curve_calc
+# }
+
+fung_data <- as.data.frame(t(fung_data))
+
+end <- max(sapply(fung_data, sum))
+
+fung_inext_results <- iNEXT(fung_data, nboot=200, endpoint = (end*2))
+
+saveRDS(fung_inext_results, "../outputs/fung_rarepool_inext_results.rds")
+
+
+fung_accum_curve <- ggiNEXT(fung_inext_results) +
+  theme_classic() +
+  ggtitle("Fungi") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(fung_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  #xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+ggsave("../figures/fung_rarepool_asv_accum_curves.png", width = 25, height = 12)
+```
+
+```{r}
+# attempt to subset inext results
+fnames <- fung_inext_results$DataInfo$site
+
+sub_inext <- function(inext_results, pattern) {
+  new_dat <- list()
+  
+  if (length(pattern)>1) {
+    new_dat$DataInfo <- inext_results$DataInfo[grepl(paste(pattern, collapse = "|"), inext_results$DataInfo$site),]
+    
+    new_dat$iNextEst <- inext_results$iNextEst[new_dat$DataInfo$site]
+    
+    new_dat$AsyEst <- inext_results$AsyEst[grepl(paste(pattern, collapse = "|"), inext_results$AsyEst$Site),]
+    
+  }
+  
+  else {
+      new_dat$DataInfo <- inext_results$DataInfo[grepl(pattern, inext_results$DataInfo$site),]
+  
+  new_dat$iNextEst <- inext_results$iNextEst[new_dat$DataInfo$site]
+  
+  new_dat$AsyEst <- inext_results$AsyEst[grepl(pattern, inext_results$AsyEst$Site),]
+    
+  }
+  
+  
+  class(new_dat) <- "iNEXT"
+   
+  return(new_dat)
+}
+
+# make subsetted inexts
+fung_invert_inext <- sub_inext(fung_inext_results, "_I")
+
+fung_detrit_inext <- sub_inext(fung_inext_results, "_D")
+
+fung_air_inext <- sub_inext(fung_inext_results, "S1")
+
+fung_water_inext <- sub_inext(fung_inext_results, c("W02", "WPool"))
+
+
+
+my_accum_plotter <- function(inext_results, title) {
+  pl <- ggiNEXT(inext_results) +
+  theme_classic() +
+  ggtitle(title) +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(inext_results$iNextEst)) ) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  #xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+  
+  return(pl)
+
+}
+
+# make plots 
+fung_inv_plot <- my_accum_plotter(fung_invert_inext, "Fungi, Inverts")
+
+ggsave("../figures/rarepool_accum_curves/fung_invert_accums.png", fung_inv_plot, width=12, height=7)
+
+fung_det_plot <- my_accum_plotter(fung_detrit_inext, "Fungi, Detritus")
+
+ggsave("../figures/rarepool_accum_curves/fung_detritus_accums.png", fung_det_plot, width=12, height=7)
+
+fung_wat_plot <- my_accum_plotter(fung_water_inext, "Fungi, Water (0.2 and Pooled)")
+
+ggsave("../figures/rarepool_accum_curves/fung_water_accums.png", fung_wat_plot, width=13, height=7)
+
+fung_air_plot <- my_accum_plotter(fung_air_inext, "Fungi, Air")
+
+ggsave("../figures/rarepool_accum_curves/fung_air_accums.png", fung_air_plot, width=12, height=7)
+
+
+
+```
+
+
+```{r}
+bact_data <- as.data.frame(t(bact_data))
+
+bact_end <- max(sapply(bact_data, sum))
+
+bact_inext_results <- iNEXT(bact_data, nboot=200, endpoint = (bact_end*2))
+
+
+saveRDS(bact_inext_results, "../outputs/bact_rarepool_inext_results.rds")
+
+
+bact_accum_curve <- ggiNEXT(bact_inext_results) +
+  theme_classic() +
+  ggtitle("Bacteria") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(bact_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(bact_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  xlim(0,750000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+ggsave("../figures/bact_rarepool_asv_accum_curves.png", width = 25, height = 12)
+```
+
+
+```{r}
+# make subsetted inexts
+bact_invert_inext <- sub_inext(bact_inext_results, "_I")
+
+bact_detrit_inext <- sub_inext(bact_inext_results, "_D")
+
+bact_air_inext <- sub_inext(bact_inext_results, "S1")
+
+bact_water_inext <- sub_inext(bact_inext_results, "W02")
+
+
+# make plots 
+bact_inv_plot <- my_accum_plotter(bact_invert_inext, "Bacteria, Inverts")
+
+ggsave("../figures/rarepool_accum_curves/bact_invert_accums.png", bact_inv_plot, width=12, height=7)
+
+bact_det_plot <- my_accum_plotter(bact_detrit_inext, "Bacteria, Detritus")
+
+ggsave("../figures/rarepool_accum_curves/bact_detritus_accums.png", bact_det_plot, width=12, height=7)
+
+bact_wat_plot <- my_accum_plotter(bact_water_inext, "Bacteria, Water (0.2)")
+
+ggsave("../figures/rarepool_accum_curves/bact_water_accums.png", bact_wat_plot, width=12, height=7)
+
+bact_air_plot <- my_accum_plotter(bact_air_inext, "Bacteria, Air")
+
+ggsave("../figures/rarepool_accum_curves/bact_air_accums.png", bact_air_plot, width=12, height=7)
+
+#bact_multiplot <- bact_inv_plot + bact_det_plot + bact_wat_plot + bact_air_plot
+```
+
+
+# Using Hill number q = 1 (exponential Shannon)
+
+```{r}
+fung_data <- readRDS("../intermediates/fung_rarefied_pooled_asv_table.rds")
+bact_data <- as.data.frame(readRDS("../intermediates/bact_rarefied_pooled_asv_table.rds"))
+```
+
+```{r}
+
+fung_data <- as.data.frame(t(fung_data))
+
+end <- max(sapply(fung_data, sum))
+
+fung_inext_results <- iNEXT(fung_data, q = 1, nboot=200)
+
+saveRDS(fung_inext_results, "../outputs/fung_rarepool_inext_results.rds")
+
+bact_inext_results <- iNEXT(bact_data, q=1, nboot=200)
+
+saveRDS(bact_inext_results, "../outputs/bact_rarepool_inext_results.rds")
+
+
+
+fung_accum_curve <- ggiNEXT(fung_inext_results) +
+  theme_classic() +
+  ggtitle("Fungi") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(fung_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  #xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+ggsave("../figures/fung_rarepool_asv_accum_curves.png", width = 25, height = 12)
+```
+
+```{r}
+# make subsetted inexts
+fung_invert_inext <- sub_inext(fung_inext_results, "_I")
+
+fung_detrit_inext <- sub_inext(fung_inext_results, "_D")
+
+fung_air_inext <- sub_inext(fung_inext_results, "S1")
+
+fung_water_inext <- sub_inext(fung_inext_results, c("W02", "WPool"))
+
+
+
+my_accum_plotter <- function(inext_results, title) {
+  pl <- ggiNEXT(inext_results) +
+  theme_classic() +
+  ggtitle(title) +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(inext_results$iNextEst)) ) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  #xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+  
+  return(pl)
+
+}
+
+# make plots 
+fung_inv_plot <- my_accum_plotter(fung_invert_inext, "Fungi, Inverts")
+
+ggsave("../figures/rarepool_accum_curves/fung_invert_accums.png", fung_inv_plot, width=12, height=7)
+
+fung_det_plot <- my_accum_plotter(fung_detrit_inext, "Fungi, Detritus")
+
+ggsave("../figures/rarepool_accum_curves/fung_detritus_accums.png", fung_det_plot, width=12, height=7)
+
+fung_wat_plot <- my_accum_plotter(fung_water_inext, "Fungi, Water (0.2 and Pooled)")
+
+ggsave("../figures/rarepool_accum_curves/fung_water_accums.png", fung_wat_plot, width=13, height=7)
+
+fung_air_plot <- my_accum_plotter(fung_air_inext, "Fungi, Air")
+
+ggsave("../figures/rarepool_accum_curves/fung_air_accums.png", fung_air_plot, width=12, height=7)
+```
+
+
+```{r}
+bact_data <- as.data.frame(t(bact_data))
+
+bact_end <- max(sapply(bact_data, sum))
+
+bact_inext_results <- iNEXT(bact_data, q=1, nboot=200)
+
+saveRDS(bact_inext_results, "../outputs/bact_rarepool_inext_results.rds")
+
+
+bact_accum_curve <- ggiNEXT(bact_inext_results) +
+  theme_classic() +
+  ggtitle("Bacteria") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(bact_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(bact_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  xlim(0,750000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+ggsave("../figures/bact_rarepool_asv_accum_curves.png", width = 25, height = 12)
+```
+
+
+```{r}
+# make subsetted inexts
+bact_invert_inext <- sub_inext(bact_inext_results, "_I")
+
+bact_detrit_inext <- sub_inext(bact_inext_results, "_D")
+
+bact_air_inext <- sub_inext(bact_inext_results, "S1")
+
+bact_water_inext <- sub_inext(bact_inext_results, "W02")
+
+
+# make plots 
+bact_inv_plot <- my_accum_plotter(bact_invert_inext, "Bacteria, Inverts")
+
+ggsave("../figures/rarepool_accum_curves/bact_invert_accums.png", bact_inv_plot, width=12, height=7)
+
+bact_det_plot <- my_accum_plotter(bact_detrit_inext, "Bacteria, Detritus")
+
+ggsave("../figures/rarepool_accum_curves/bact_detritus_accums.png", bact_det_plot, width=12, height=7)
+
+bact_wat_plot <- my_accum_plotter(bact_water_inext, "Bacteria, Water (0.2)")
+
+ggsave("../figures/rarepool_accum_curves/bact_water_accums.png", bact_wat_plot, width=12, height=7)
+
+bact_air_plot <- my_accum_plotter(bact_air_inext, "Bacteria, Air")
+
+ggsave("../figures/rarepool_accum_curves/bact_air_accums.png", bact_air_plot, width=12, height=7)
+
+```
+
+
+
+
+
+
+
+

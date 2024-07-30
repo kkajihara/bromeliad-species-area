@@ -1,0 +1,843 @@
+---
+title: "species_area_rarefied_pooled"
+output: html_document
+date: "2024-06-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(purrr)
+library(dplyr)
+library(ggplot2)
+
+library(MetBrewer)
+library(patchwork)
+library(pals)
+```
+
+
+```{r}
+fung_data <- as.data.frame(readRDS("../intermediates/fung_rarefied_pooled_asv_table.rds"))
+bact_data <- as.data.frame(readRDS("../intermediates/bact_rarefied_pooled_asv_table.rds"))
+
+fung_rep_dat_full <- readRDS("../intermediates/fung_replication_data_v2.rds")
+#fung_rep_dat <- fung_rep_dat[fung_rep_dat$sample %in% rownames(fung_data),]
+
+bact_rep_dat_full <- readRDS("../intermediates/bact_replication_data_v2.rds")
+#bact_rep_dat <- bact_rep_dat[bact_rep_dat$sample %in% rownames(bact_data),]
+
+bro_metadata <- read.csv("../metadata/sar_metadata_clean - Sheet1.csv")
+```
+
+
+Table cleanup
+
+```{r}
+## fung
+fung_rich <- fung_data != 0
+  
+fung_rep_dat <- data.frame(pooled_sample = rownames(fung_data),
+                           pooled_sample2 = rownames(fung_data))
+fung_rep_dat <- fung_rep_dat %>% tidyr::separate(pooled_sample2, c("bronum", "compartment"))
+
+fung_rep_dat$richness <- rowSums(fung_rich)
+
+fung_rep_dat_full$poolname <- paste(fung_rep_dat_full$Bro1, fung_rep_dat_full$Compartment, sep="_")
+#fung_rep_dat_full <- dplyr::select(fung_rep_dat_full, -c(repnum, num))
+
+fung_rep_dat_full <- fung_rep_dat_full %>% dplyr::group_by(poolname) %>% dplyr::mutate(repnum = length(sample)) %>% dplyr::ungroup()
+
+
+fung_rep_dat$repnum <- fung_rep_dat_full$repnum[match(fung_rep_dat$pooled_sample, fung_rep_dat_full$poolname)]
+
+fung_rep_dat_full[fung_rep_dat_full$newCompartment=="Air",] %>% dplyr::group_by(bro_and_comp) %>% dplyr::summarise(n = n())
+
+fung_rep_dat$repnum[grepl("T1", fung_rep_dat$pooled_sample)] <- 6
+fung_rep_dat$repnum[grepl("T2", fung_rep_dat$pooled_sample)] <- 6
+fung_rep_dat$repnum[grepl("T3", fung_rep_dat$pooled_sample)] <- 6
+fung_rep_dat$repnum[grepl("T4", fung_rep_dat$pooled_sample)] <- 5
+
+fung_rep_dat <- fung_rep_dat %>%
+  dplyr::mutate(newCompartment = case_when(
+    fung_rep_dat$compartment == "I" ~ "Inverts",
+    fung_rep_dat$compartment == "D" ~ "Detritus",
+    grepl("T", fung_rep_dat$compartment) ~ "Air",
+    grepl("W", fung_rep_dat$compartment) ~ "Water"
+  ))
+
+
+## bact
+bact_rich <- bact_data != 0
+  
+bact_rep_dat <- data.frame(pooled_sample = rownames(bact_data),
+                           pooled_sample2 = rownames(bact_data))
+bact_rep_dat <- bact_rep_dat %>% tidyr::separate(pooled_sample2, c("bronum", "compartment"))
+
+bact_rep_dat$richness <- rowSums(bact_rich)
+
+bact_rep_dat_full$poolname <- paste(bact_rep_dat_full$Bro1, bact_rep_dat_full$Compartment, sep="_")
+#bact_rep_dat_full <- dplyr::select(bact_rep_dat_full, -c(repnum, num))
+
+bact_rep_dat_full <- bact_rep_dat_full %>% dplyr::group_by(poolname) %>% dplyr::mutate(repnum = length(sample)) %>% dplyr::ungroup()
+
+
+bact_rep_dat$repnum <- bact_rep_dat_full$repnum[match(bact_rep_dat$pooled_sample, bact_rep_dat_full$poolname)]
+
+bact_rep_dat_full[bact_rep_dat_full$newCompartment=="Air",] %>% dplyr::group_by(Compartment) %>% dplyr::summarise(n = n())
+
+bact_rep_dat$repnum[grepl("T1", bact_rep_dat$pooled_sample)] <- 3
+bact_rep_dat$repnum[grepl("T2", bact_rep_dat$pooled_sample)] <- 5
+bact_rep_dat$repnum[grepl("T3", bact_rep_dat$pooled_sample)] <- 5
+bact_rep_dat$repnum[grepl("T4", bact_rep_dat$pooled_sample)] <- 4
+
+bact_rep_dat <- bact_rep_dat %>%
+  mutate(newCompartment = case_when(
+    bact_rep_dat$compartment == "I" ~ "Inverts",
+    bact_rep_dat$compartment == "D" ~ "Detritus",
+    grepl("T", bact_rep_dat$compartment) ~ "Air",
+    grepl("W", bact_rep_dat$compartment) ~ "Water"
+  ))
+```
+Get Hill number 1 diversity estimates for rarefied pools since they don't asymptote
+
+```{r}
+
+fung_inext <- readRDS("../outputs/fung_rarepool_inext_results.rds")
+
+bact_inext <- readRDS("../outputs/bact_rarepool_inext_results.rds")
+
+
+fung_asymp_shannon <- fung_inext$AsyEst[fung_inext$AsyEst$Diversity=="Shannon diversity",]
+
+bact_asymp_shannon <- bact_inext$AsyEst[fung_inext$AsyEst$Diversity=="Shannon diversity",]
+
+
+fung_rep_dat$shannon <- fung_asymp_shannon$Estimator[match(fung_asymp_shannon$Site, fung_rep_dat$pooled_sample)]
+
+bact_rep_dat$shannon <- bact_asymp_shannon$Estimator[match(bact_asymp_shannon$Site, bact_rep_dat$pooled_sample)]
+
+
+fung_rep_dat$log_shannon <- log(fung_rep_dat$shannon)
+bact_rep_dat$log_shannon <- log(bact_rep_dat$shannon)
+```
+
+```{r}
+brostuff <- bro_metadata %>% tidyr::separate(Label, c("Project", "bro_num", "num"))
+brostuff$bro_num <- paste0(brostuff$bro_num, brostuff$num)
+
+fung_rep_dat$water_volume <- brostuff$Water.volume...in.lab...mL.[match(fung_rep_dat$bronum, brostuff$bro_num)]
+fung_rep_dat$detritus_wt <- brostuff$Dry.weight.detritus[match(fung_rep_dat$bronum, brostuff$bro_num)]
+
+bact_rep_dat$water_volume <- brostuff$Water.volume...in.lab...mL.[match(bact_rep_dat$bronum, brostuff$bro_num)]
+bact_rep_dat$detritus_wt <- brostuff$Dry.weight.detritus[match(bact_rep_dat$bronum, brostuff$bro_num)]
+```
+
+```{r}
+# fung_rep_dat$newCompartment[fung_rep_dat$Compartment=="W02"] = "W02"
+# fung_rep_dat$newCompartment[fung_rep_dat$Compartment=="WPool"] = "WPool"
+
+# remove Wpool samples in bact?
+bact_rep_dat <- bact_rep_dat[!(grepl("WPool", bact_rep_dat$pooled_sample)),]
+
+bact_data <- bact_data[rownames(bact_data) %in% bact_rep_dat$pooled_sample,]
+bact_data <- bact_data[,colSums(bact_data)>0]
+```
+
+Functions!
+```{r}
+get_data_for_regress <- function(rep_dat, compartment) {
+  filt_dat <- rep_dat[rep_dat$newCompartment == compartment,]
+  
+  #filt_dat$log_shannon <- log(filt_dat$richness)
+  
+  # dat_summ <- filt_dat %>% group_by(bronum) %>% summarize(log_rich = mean(log_shannon))
+  # 
+  # dat_summ_se <- filt_dat %>% group_by(bronum) %>% 
+  #   summarize(se = sd(log_shannon)/sqrt(length(log_shannon)))
+  # 
+  # dat_summ$se <- dat_summ_se$se
+  # 
+  # dat_summ$water_volume <- filt_dat$water_volume[match(dat_summ$bronum, filt_dat$bronum)]
+  # dat_summ$detritus_wt <- filt_dat$detritus_wt[match(dat_summ$bronum, filt_dat$bronum)]
+  
+  # res <- list()
+  
+  # res[["full_data"]] <- filt_dat
+  # res[["summarized_data"]] <- dat_summ
+  
+  return(filt_dat)
+}
+
+fung_inv_regress_dat <- get_data_for_regress(rep_dat = fung_rep_dat,
+                                             compartment = "Inverts")
+
+fung_det_regress_dat <- get_data_for_regress(rep_dat = fung_rep_dat,
+                                             compartment = "Detritus")
+
+fung_water_regress_dat <- get_data_for_regress(rep_dat = fung_rep_dat,
+                                             compartment = "Water")
+
+
+
+
+bact_inv_regress_dat <- get_data_for_regress(rep_dat = bact_rep_dat,
+                                             compartment = "Inverts")
+
+bact_det_regress_dat <- get_data_for_regress(rep_dat = bact_rep_dat,
+                                             compartment = "Detritus")
+
+bact_water_regress_dat <- get_data_for_regress(rep_dat = bact_rep_dat,
+                                             compartment = "Water")
+
+
+
+```
+
+
+```{r}
+# bootstrap function
+bfun <- \(x, y, R=1000, seed=134) {
+  FUN <- \() {
+    i <- sample(seq_len(length(x)), replace=TRUE)
+    y <- y[i]
+    x <- x[i]
+    return(lm(y ~ x)$coefficients)
+
+    #return()
+  }
+  set.seed(seed)
+  r <- t(replicate(R, FUN()))
+  bootdist <- r[, 2]
+
+  return(bootdist)
+
+}
+
+```
+
+Regressions and bootstraps
+```{r}
+# volume = detritus weight
+fung_regress_data_list = list(fung_inv_regress_dat,
+                              fung_det_regress_dat,
+                              fung_water_regress_dat)
+
+fung_detwt_boot_slopes <- lapply(fung_regress_data_list,
+                                 function(data) bfun(x = log(data$detritus_wt), y = data$log_shannon, R = 10000, seed=1899))
+
+
+fung_regular_lms_detritus_wt <- lapply(fung_regress_data_list,
+                           function(x) lm(log_shannon ~ log(detritus_wt), data = x))
+
+fung_reg_lm_slopes_detritus_wt <- lapply(fung_regular_lms_detritus_wt, function(y) coef(y)[2])
+
+fung_tts_detritus_wt <- list()
+
+for (i in 1:length(fung_regress_data_list)) {
+  fung_tts_detritus_wt[[i]] = t.test(unlist(fung_detwt_boot_slopes[[i]]), mu = fung_reg_lm_slopes_detritus_wt[[i]])
+}
+
+
+
+
+##### water volume
+fung_wvol_boot_slopes <- lapply(fung_regress_data_list,
+                                 function(data) bfun(x = log(data$water_volume), y = data$log_shannon, R = 10000, seed=222))
+
+fung_regular_lms_water_volume <- lapply(fung_regress_data_list,
+                           function(x) lm(log_shannon ~ log(water_volume), data = x))
+
+fung_reg_lm_slopes_water_volume <- lapply(fung_regular_lms_water_volume, function(y) coef(y)[2])
+
+fung_tts_water_volume <- list()
+
+for (i in 1:length(fung_regress_data_list)) {
+  fung_tts_water_volume[[i]] = t.test(unlist(fung_wvol_boot_slopes[[i]]), mu = fung_reg_lm_slopes_water_volume[[i]])
+}
+```
+
+Air
+```{r}
+# air
+# richness per sample vs water volume
+
+# We left the sampler out in the field to collect samples of the air microbiome above the bromeliad garden for 1 hour, 2.5 hours, 4.5 hours, and 6 hours with n=6 replicates per time point. These time points correspond to 990, 2475, 4455, and 5940 liters respectively. 
+
+fung_air <- fung_rep_dat[fung_rep_dat$newCompartment=="Air",]
+fung_air <- subset(fung_air, select = -c(detritus_wt, water_volume))
+fung_air$combo <- paste(fung_air$bronum, fung_air$compartment, sep = "_")
+
+fung_air<- fung_air %>%
+  mutate(air_volume = case_when(
+    compartment == "T1" ~ 990,
+    compartment == "T2" ~ 2475,
+    compartment == "T3" ~ 4455,
+    compartment == "T4" ~ 5940
+  ))
+
+
+##### bootstrap and regressions
+fung_air_boot_slopes <- bfun(x = log(fung_air$air_volume), y = fung_air$log_shannon, R = 10000, seed=111)
+
+fung_regular_lm_air_volume <- lm(log_shannon ~ log(air_volume), data = fung_air)
+
+fung_reg_lm_slope_air_volume <- coef(fung_regular_lm_air_volume)[2]
+
+fung_tts_air_volume <- t.test(unlist(fung_air_boot_slopes),
+                              mu = fung_reg_lm_slope_air_volume)
+
+
+```
+
+Plots 
+```{r}
+my_regress_plot <- function(regress_data, wvol_color = "black", detwt_color = "black") {
+  gg1 <- ggplot(regress_data, aes(x=log(water_volume), y=log_shannon)) + 
+  geom_point(color = wvol_color) +
+  stat_smooth(method = "lm", 
+              formula = y ~ x, 
+              geom = "smooth",
+              se = F,
+              color = wvol_color) +
+  #theme(axis.text = element_text(color = "black", size = 14)) +
+  labs(y = "log(Shannon)") +
+  theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+  
+  gg2 <- ggplot(regress_data, aes(x=log(detritus_wt), y=log_shannon)) + 
+  geom_point(color = detwt_color) +
+  stat_smooth(method = "lm", 
+              formula = y ~ x, 
+              geom = "smooth",
+              se = F,
+              color = detwt_color) +
+  # geom_errorbar(aes(ymin=log_rich-se, ymax=log_rich+se),
+  #               width=.2,
+  #               color = met.brewer("NewKingdom")[4]) +
+  labs(y = "log(Shannon)", x = "log(detritus_weight)") +
+  theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+  
+  gglist <- list(gg1, gg2)
+  
+  return(gglist)
+  
+  
+}
+
+
+fung_inv_plot <- my_regress_plot(fung_inv_regress_dat, 
+                                 wvol_color = stepped()[1],
+                                 detwt_color = stepped()[5])
+fung_inv_plot <- lapply(fung_inv_plot, function(x) x + ggtitle("Fungi, Invertebrates"))
+
+fung_det_plot <- my_regress_plot(fung_det_regress_dat,
+                                 detwt_color = stepped()[9])
+fung_det_plot <- lapply(fung_det_plot, function(x) x + ggtitle("Fungi, Detritus"))
+
+fung_water_plot <- my_regress_plot(fung_water_regress_dat,
+                                   wvol_color = stepped()[13])
+fung_water_plot <- lapply(fung_water_plot, function(x) x + ggtitle("Fungi, Water"))
+
+# fung_wpool_plot <- my_regress_plot(fung_wpool_regress_dat$summarized_data)
+# fung_wpool_plot <- lapply(fung_wpool_plot, function(x) x + ggtitle("Fungi, WPool"))
+
+fung_air_plot <- ggplot(fung_air, aes(x=log(air_volume), y=log_shannon)) + 
+  geom_point(color = stepped()[19]) +
+  stat_smooth(method = "lm", 
+              formula = y ~ x, 
+              geom = "smooth",
+              se = F,
+              color = stepped()[19]) +
+  # geom_errorbar(aes(ymin=log_rich-se, ymax=log_rich+se), 
+  #               width=.2,
+  #               color = met.brewer("NewKingdom")[1]) +
+  labs(y = "log(Shannon)", title = "Fungi, Air") +
+  theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+
+fung_plots <- fung_inv_plot[[1]] + fung_inv_plot[[2]] +
+  fung_water_plot[[1]] +
+  fung_det_plot [[2]] + plot_layout(nrow = 2)
+
+
+#ggsave("../figures/rarepool_all_fungi_sar_regression_plots.png", fung_plots, height = 12, width = 9.5)
+
+```
+
+
+Table
+```{r}
+# things to put in table = locus, compartment, R2, p-value, slope, t-test p-value, intercept
+
+fung_tbl_detritus_wt <- data.frame(Locus = rep("Fungi", 3),
+                       Compartment = c("Invertebrates", "Detritus", "Water (W02 and WPool)"),
+                       Volume = rep("Detritus_weight_mg", 3))
+
+fung_tbl_detritus_wt$R2 = sapply(fung_regular_lms_detritus_wt,
+                     function(x) summary(x)$r.squared)
+
+fung_tbl_detritus_wt$pval = sapply(fung_regular_lms_detritus_wt,
+                       function(x) as.numeric(summary(x)$coefficients[,4][2]))
+
+fung_tbl_detritus_wt$Slope = sapply(fung_regular_lms_detritus_wt,
+                        function(x) coef(x)[2])
+
+fung_tbl_detritus_wt$bootstrap_ttest_pval <- sapply(fung_tts_detritus_wt, 
+                                        function(x) x$p.value)
+
+fung_tbl_detritus_wt$Intercept = sapply(fung_regular_lms_detritus_wt,
+                        function(x) coef(x)[1])
+
+
+##### water volume
+fung_tbl_water_volume <- data.frame(Locus = rep("Fungi", 3),
+                       Compartment = c("Invertebrates", "Detritus", "Water (W02 and WPool)"),
+                       Volume = rep("Water_volume_mL", 3))
+
+fung_tbl_water_volume$R2 = sapply(fung_regular_lms_water_volume,
+                     function(x) summary(x)$r.squared)
+
+fung_tbl_water_volume$pval = sapply(fung_regular_lms_water_volume,
+                       function(x) as.numeric(summary(x)$coefficients[,4][2]))
+
+fung_tbl_water_volume$Slope = sapply(fung_regular_lms_water_volume,
+                        function(x) coef(x)[2])
+
+fung_tbl_water_volume$bootstrap_ttest_pval <- sapply(fung_tts_water_volume, 
+                                        function(x) x$p.value)
+
+fung_tbl_water_volume$Intercept = sapply(fung_regular_lms_water_volume,
+                        function(x) coef(x)[1])
+
+
+fung_full_tbl <- rbind(fung_tbl_detritus_wt, fung_tbl_water_volume)
+
+
+fung_row_air <- c(Locus = "Fungi",
+                  Compartment = "Air",
+                  Volume = "Air_volume_L",
+                  R2 = summary(fung_regular_lm_air_volume)$r.squared,
+                  pval = as.numeric(summary(fung_regular_lm_air_volume)$coefficients[,4][2]),
+                  Slope = coef(fung_regular_lm_air_volume)[2],
+                  bootstrap_ttest_pval = fung_tts_air_volume$p.value,
+                  Intercept = coef(fung_regular_lm_air_volume)[1]
+                  )
+
+fung_full_tbl <- rbind(fung_full_tbl, fung_row_air)
+
+# take out things not focusing on
+fung_final_tbl <- fung_full_tbl[-c(5,3),]
+
+fung_final_tbl <- fung_final_tbl[c(3,1,4,2,5),]
+
+```
+
+
+# Bacteria
+
+Regressions and bootstraps
+```{r}
+# volume = detritus weight
+bact_regress_data_list = list(bact_inv_regress_dat,
+                              bact_det_regress_dat,
+                              bact_water_regress_dat)
+
+bact_detwt_boot_slopes <- lapply(bact_regress_data_list,
+                                 function(data) bfun(x = log(data$detritus_wt), y = data$log_shannon, R = 10000, seed=18991))
+
+
+bact_regular_lms_detritus_wt <- lapply(bact_regress_data_list,
+                           function(x) lm(log_shannon ~ log(detritus_wt), data = x))
+
+bact_reg_lm_slopes_detritus_wt <- lapply(bact_regular_lms_detritus_wt, function(y) coef(y)[2])
+
+bact_tts_detritus_wt <- list()
+
+for (i in 1:length(bact_regress_data_list)) {
+  bact_tts_detritus_wt[[i]] = t.test(unlist(bact_detwt_boot_slopes[[i]]), mu = bact_reg_lm_slopes_detritus_wt[[i]])
+}
+
+
+
+
+##### water volume
+bact_wvol_boot_slopes <- lapply(bact_regress_data_list,
+                                 function(data) bfun(x = log(data$water_volume), y = data$log_shannon, R = 10000, seed=2221))
+
+bact_regular_lms_water_volume <- lapply(bact_regress_data_list,
+                           function(x) lm(log_shannon ~ log(water_volume), data = x))
+
+bact_reg_lm_slopes_water_volume <- lapply(bact_regular_lms_water_volume, function(y) coef(y)[2])
+
+bact_tts_water_volume <- list()
+
+for (i in 1:length(bact_regress_data_list)) {
+  bact_tts_water_volume[[i]] = t.test(unlist(bact_wvol_boot_slopes[[i]]), mu = bact_reg_lm_slopes_water_volume[[i]])
+}
+```
+
+Air
+```{r}
+# air
+# richness per sample vs water volume
+
+# We left the sampler out in the field to collect samples of the air microbiome above the bromeliad garden for 1 hour, 2.5 hours, 4.5 hours, and 6 hours with n=6 replicates per time point. These time points correspond to 990, 2475, 4455, and 5940 liters respectively. 
+
+bact_air <- bact_rep_dat[bact_rep_dat$newCompartment=="Air",]
+bact_air <- subset(bact_air, select = -c(detritus_wt, water_volume))
+bact_air$combo <- paste(bact_air$bronum, bact_air$compartment, sep = "_")
+
+bact_air<- bact_air %>%
+  mutate(air_volume = case_when(
+    compartment == "T1" ~ 990,
+    compartment == "T2" ~ 2475,
+    compartment == "T3" ~ 4455,
+    compartment == "T4" ~ 5940
+  ))
+
+
+##### bootstrap and regressions
+bact_air_boot_slopes <- bfun(x = log(bact_air$air_volume), y = bact_air$log_shannon, R = 10000, seed=1111)
+
+bact_regular_lm_air_volume <- lm(log_shannon ~ log(air_volume), data = bact_air)
+
+bact_reg_lm_slope_air_volume <- coef(bact_regular_lm_air_volume)[2]
+
+bact_tts_air_volume <- t.test(unlist(bact_air_boot_slopes),
+                              mu = bact_reg_lm_slope_air_volume)
+
+
+```
+
+Plots 
+```{r}
+
+bact_inv_plot <- my_regress_plot(bact_inv_regress_dat, 
+                                 wvol_color = stepped()[1],
+                                 detwt_color = stepped()[5])
+bact_inv_plot <- lapply(bact_inv_plot, function(x) x + ggtitle("Bacteria, Invertebrates"))
+
+bact_det_plot <- my_regress_plot(bact_det_regress_dat,
+                                 detwt_color = stepped()[9])
+bact_det_plot <- lapply(bact_det_plot, function(x) x + ggtitle("Bacteria, Detritus"))
+
+bact_water_plot <- my_regress_plot(bact_water_regress_dat,
+                                   wvol_color = stepped()[13])
+bact_water_plot <- lapply(bact_water_plot, function(x) x + ggtitle("Bacteria, Water"))
+
+# bact_wpool_plot <- my_regress_plot(bact_wpool_regress_dat$summarized_data)
+# bact_wpool_plot <- lapply(bact_wpool_plot, function(x) x + ggtitle("Bacteria, WPool"))
+
+bact_air_plot <- ggplot(bact_air, aes(x=log(air_volume), y=log_shannon)) + 
+  geom_point(color = stepped()[19]) +
+  stat_smooth(method = "lm", 
+              formula = y ~ x, 
+              geom = "smooth",
+              se = F,
+              color = stepped()[19]) +
+  # geom_errorbar(aes(ymin=log_rich-se, ymax=log_rich+se), 
+  #               width=.2,
+  #               color = met.brewer("NewKingdom")[1]) +
+  labs(y = "log(Shannon)", title = "Bacteria, Air") +
+  theme_classic() +
+  theme(axis.text = element_text(color = "black", size = 12),
+        axis.title = element_text(color = "black", size = 13)) 
+
+bact_plots <- bact_inv_plot[[1]] + bact_inv_plot[[2]] +
+  bact_water_plot[[1]] +
+  bact_det_plot [[2]] + plot_layout(nrow = 2)
+
+
+all_sar_plots <- 
+  fung_det_plot [[2]] + fung_water_plot[[1]] + fung_inv_plot[[2]] + fung_inv_plot[[1]] + 
+  bact_det_plot [[2]] + bact_water_plot[[1]] + bact_inv_plot[[2]] + bact_inv_plot[[1]] +
+  plot_layout(nrow = 2)
+
+ggsave("../figures/for_manuscript/all_sar_rarepool_plots.pdf", width=16, height=7.5)
+ggsave("../figures/for_manuscript/all_sar_rarepool_plots.png", width=16, height=7.5)
+
+
+#ggsave("../figures/rarepool_all_bact_sar_regression_plots.png", bact_plots, height = 12, width = 9.5)
+
+```
+
+Table
+```{r}
+# things to put in table = locus, compartment, R2, p-value, slope, t-test p-value, intercept
+
+bact_tbl_detritus_wt <- data.frame(Locus = rep("Bacteria", 3),
+                       Compartment = c("Invertebrates", "Detritus", "Water (W02)"),
+                       Volume = rep("Detritus_weight_mg", 3))
+
+bact_tbl_detritus_wt$R2 = sapply(bact_regular_lms_detritus_wt,
+                     function(x) summary(x)$r.squared)
+
+bact_tbl_detritus_wt$pval = sapply(bact_regular_lms_detritus_wt,
+                       function(x) as.numeric(summary(x)$coefficients[,4][2]))
+
+bact_tbl_detritus_wt$Slope = sapply(bact_regular_lms_detritus_wt,
+                        function(x) coef(x)[2])
+
+bact_tbl_detritus_wt$bootstrap_ttest_pval <- sapply(bact_tts_detritus_wt, 
+                                        function(x) x$p.value)
+
+bact_tbl_detritus_wt$Intercept = sapply(bact_regular_lms_detritus_wt,
+                        function(x) coef(x)[1])
+
+
+##### water volume
+bact_tbl_water_volume <- data.frame(Locus = rep("Bacteria", 3),
+                       Compartment = c("Invertebrates", "Detritus", "Water (W02)"),
+                       Volume = rep("Water_volume_mL", 3))
+
+bact_tbl_water_volume$R2 = sapply(bact_regular_lms_water_volume,
+                     function(x) summary(x)$r.squared)
+
+bact_tbl_water_volume$pval = sapply(bact_regular_lms_water_volume,
+                       function(x) as.numeric(summary(x)$coefficients[,4][2]))
+
+bact_tbl_water_volume$Slope = sapply(bact_regular_lms_water_volume,
+                        function(x) coef(x)[2])
+
+bact_tbl_water_volume$bootstrap_ttest_pval <- sapply(bact_tts_water_volume, 
+                                        function(x) x$p.value)
+
+bact_tbl_water_volume$Intercept = sapply(bact_regular_lms_water_volume,
+                        function(x) coef(x)[1])
+
+
+bact_full_tbl <- rbind(bact_tbl_detritus_wt, bact_tbl_water_volume)
+
+
+bact_row_air <- c(Locus = "Bacteria",
+                  Compartment = "Air",
+                  Volume = "Air_volume_L",
+                  R2 = summary(bact_regular_lm_air_volume)$r.squared,
+                  pval = as.numeric(summary(bact_regular_lm_air_volume)$coefficients[,4][2]),
+                  Slope = coef(bact_regular_lm_air_volume)[2],
+                  bootstrap_ttest_pval = bact_tts_air_volume$p.value,
+                  Intercept = coef(bact_regular_lm_air_volume)[1]
+                  )
+
+bact_full_tbl <- rbind(bact_full_tbl, bact_row_air)
+
+bact_final_tbl <- bact_full_tbl[-c(3,5),]
+bact_final_tbl <- bact_final_tbl[c(3,1,4,2,5),]
+
+```
+
+```{r}
+full_full_tbl <- rbind(fung_final_tbl, bact_final_tbl)
+full_full_tbl$bootstrap_ttest_pval <- as.numeric(full_full_tbl$bootstrap_ttest_pval)
+
+### correcting P-values for multiple comparisons
+library(multtest)  
+
+# Set seed for repeatability
+set.seed(2024)
+  
+adj_p_values = mt.rawp2adjp(full_full_tbl$bootstrap_ttest_pval)
+    
+adj_p_mat = adj_p_values$adjp[, c("rawp", "BH")]
+  
+adj_p_ordered = adj_p_mat[,2][order(adj_p_values$index)]
+
+full_full_tbl$bootstrap_ttest_pval <- adj_p_ordered
+
+saveRDS(full_full_tbl, "../intermediates/rarepool_regression_stats_table.rds")
+```
+
+
+# z-value comparisons among compartments, within and between loci
+Bootstrap to generate variance on the observed data slope, repeated 1,000 times
+```{r}
+
+get_ci <- function(slope_distribution_vector) {
+  sample.mean <- mean(slope_distribution_vector)
+  sample.n <- length(slope_distribution_vector)
+  sample.sd <- sd(slope_distribution_vector)
+  sample.se <- sample.sd/sqrt(sample.n)
+  
+  alpha = 0.05
+  degrees.freedom = sample.n - 1
+  t.score = qt(p=alpha/2, df=degrees.freedom,lower.tail=F)
+  
+  margin.error <- t.score * sample.se
+  
+  lower.bound <- sample.mean - margin.error
+  upper.bound <- sample.mean + margin.error
+  
+  return(paste(round(lower.bound, 4),
+               round(upper.bound, 4),
+               sep=","))
+
+}
+
+```
+
+```{r}
+fung_dw <- lapply(fung_regress_data_list,
+                  function(x) bfun(y = x$log_shannon, x = log(x$detritus_wt)))
+
+fung_dw_ci <- lapply(fung_dw, get_ci)
+
+fung_wv <- lapply(fung_regress_data_list,
+                  function(x) bfun(y = x$log_shannon, x = log(x$water_volume)))
+
+fung_wv_ci <- lapply(fung_wv, get_ci)
+
+fung_a <- bfun(y = fung_air$log_shannon, x = log(fung_air$air_volume))
+fung_a <- fung_a[!is.na(fung_a)]
+
+fung_a_ci <- get_ci(fung_a)
+
+
+bact_dw <- lapply(bact_regress_data_list,
+                  function(x) bfun(y = x$log_shannon, x = log(x$detritus_wt)))
+
+bact_dw_ci <- lapply(bact_dw, get_ci)
+
+bact_wv <- lapply(bact_regress_data_list ,
+                  function(x) bfun(y = x$log_shannon, x = log(x$water_volume)))
+
+bact_wv_ci <- lapply(bact_wv, get_ci)
+
+bact_a <- bfun(y = bact_air$log_shannon, x = log(bact_air$air_volume))
+bact_a <- bact_a[!is.na(bact_a)]
+
+bact_a_ci <- get_ci(bact_a)
+
+
+# append to full table
+ci_vector <- c(fung_wv_ci[[1]],
+                    fung_dw_ci[[1]],
+                    fung_wv_ci[[3]],
+                    fung_dw_ci[[2]],
+                    fung_a_ci,
+                    bact_wv_ci[[1]],
+                    bact_dw_ci[[1]],
+                    bact_wv_ci[[3]],
+                    bact_dw_ci[[2]],
+                    bact_a_ci
+                    )
+
+new_full_table <- full_full_tbl
+new_full_table$CI_95 <- ci_vector
+
+new_full_table <- new_full_table %>% dplyr::select(Locus, Compartment, Volume, R2, pval, Slope, CI_95, bootstrap_ttest_pval, Intercept)
+saveRDS(new_full_table, "../intermediates/rarepool_regression_stats_with_bootstrapped_confint.rds")
+
+write.csv(new_full_table, "../outputs/rarepool_regression_stats_with_bootstrapped_confint.csv")
+```
+
+Pairwise t-tests
+```{r}
+# inv, det, water, air
+long_data <- data.frame(type = c(rep("fung_inverts_dw", length(fung_dw[[1]])),
+                                 rep("fung_detritus_dw", length(fung_dw[[2]])),
+                                 #rep("fung_water_dw", length(fung_dw[[3]])),
+                                 rep("fung_inverts_wv", length(fung_wv[[1]])),
+                                 #rep("fung_detritus_wv", length(fung_wv[[2]])),
+                                 rep("fung_water_wv", length(fung_wv[[3]])),
+                                 rep("fung_air", length(fung_a)),
+                                 
+                                 rep("bact_inverts_dw", length(bact_dw[[1]])),
+                                 rep("bact_detritus_dw", length(bact_dw[[2]])),
+                                 #rep("bact_water_dw", length(bact_dw[[3]])),
+                                 rep("bact_inverts_wv", length(bact_wv[[1]])),
+                                 #rep("bact_detritus_wv", length(bact_wv[[2]])),
+                                 rep("bact_water_wv", length(bact_wv[[3]])),
+                                 rep("bact_air", length(bact_a))
+                                 
+                                 ),
+                        slope = c(fung_dw[[1]],
+                                  fung_dw[[2]],
+                                  #fung_dw[[3]],
+                                  fung_wv[[1]],
+                                  #fung_wv[[2]],
+                                  fung_wv[[3]],
+                                  fung_a,
+                                  
+                                  bact_dw[[1]],
+                                  bact_dw[[2]],
+                                  #bact_dw[[3]],
+                                  bact_wv[[1]],
+                                  #bact_wv[[2]],
+                                  bact_wv[[3]],
+                                  bact_a
+                                  ))
+
+
+pair_t <- pairwise.t.test(long_data$slope, long_data$type, p.adjust.method = "BH")[[3]]
+pair_t2 <- apply(pair_t, 2, function(x) ifelse(!is.na(x), round(x, 7), NA))
+
+saveRDS(pair_t2, "../intermediates/rarepool_pairwise_ttest_boot_slopes_between_compartments.rds")
+
+write.csv(pair_t2, "../outputs/rarepool_pairwise_ttest_boot_slopes_between_compartments.csv")
+```
+
+## save out data for slope comparison
+```{r}
+saveRDS(fung_regress_data_list, "../intermediates/rarepool_fung_regress_data_list.rds")
+saveRDS(fung_air, "../intermediates/rarepool_fung_air_data.rds")
+
+saveRDS(bact_regress_data_list, "../intermediates/rarepool_bact_regress_data_list.rds")
+saveRDS(bact_air, "../intermediates/rarepool_bact_air_data.rds")
+```
+
+Some regressions
+```{r}
+
+gg <- ggplot(fung_inv_summ, aes(x=log(water_vol), y=log(rich))) + geom_point()
+
+summary(inv_wat1 <- lm(rich ~ water_vol, data = fung_inv_summ))
+summary(inv_wat2<- lm(log(rich) ~ log(water_vol), data = fung_inv_summ))
+summary(inv_wat3 <- glm.nb(rich ~ water_vol, data = fung_inv_summ))
+
+AIC(inv_wat1)
+AIC(inv_wat2)
+AIC(inv_wat3)
+
+summary(inv_det1 <- lm(rich ~ detritus_wt, data = fung_inv_summ))
+summary(inv_det2<- lm(log(rich) ~ log(detritus_wt), data = fung_inv_summ))
+summary(inv_det3 <- glm.nb(rich ~ detritus_wt, data = fung_inv_summ))
+
+AIC(inv_det1)
+AIC(inv_det2)
+AIC(inv_det3)
+
+
+# test <- lm(log(fung_rep_dat$richness) ~ log(fung_rep_dat$water_volume))
+# summary(test1 <- glm.nb(richness ~ water_volume, data=fung_rep_dat))
+```
+
+
+
+```{r}
+#gg <- ggplot(fung_air_summ, aes(x=log(water_vol), y=log(rich))) + geom_point()
+
+summary(det_wat1 <- lm(rich ~ water_vol, data = fung_det_summ))
+summary(det_wat2<- lm(log(rich) ~ log(water_vol), data = fung_det_summ))
+#summary(det_wat3 <- glm.nb(rich ~ water_vol, data = fung_det_summ))
+
+AIC(det_wat1)
+AIC(det_wat2)
+#AIC(det_wat3)
+
+summary(det_det1 <- lm(rich ~ detritus_wt, data = fung_det_summ))
+summary(det_det2<- lm(log(rich) ~ log(detritus_wt), data = fung_det_summ))
+#summary(det_det3 <- glm.nb(rich ~ detritus_wt, data = fung_det_summ))
+
+AIC(det_det1)
+AIC(det_det2)
+#AIC(det_det3)
+
+```
+

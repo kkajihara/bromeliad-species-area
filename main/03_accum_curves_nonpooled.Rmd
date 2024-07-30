@@ -1,0 +1,467 @@
+---
+title: "accum_curves_nonpooled"
+output: html_document
+date: "2024-05-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(devtools)
+#install_version("iNEXT", version = "2.0.19", repos = "http://cran.us.r-project.org")
+
+library(iNEXT)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+```
+
+```{r}
+fung_data <- readRDS("../intermediates/culled_fung_asv_table_decontamed_nonpooled.rds")
+bact_data <- readRDS("../intermediates/culled_bact_asv_table_decontamed_nonpooled.rds")
+```
+
+```{r}
+# library(parallel)
+# library(pbmcapply)
+# Max_CPU_Cores = detectCores()
+# Upper_Limit_CPU_Cores = 2*round((Max_CPU_Cores*0.8)/2)
+# # Parallel Rareification Function
+# # This is a working parallelized function of iNEXT. 5x faster than previously
+# parallel_rarefaction <- function(shuffled_data){
+#   out_df <- iNEXT(as.vector(shuffled_data), q=0, datatype="abundance")
+#   df <- fortify(out_df, type=1)
+#   return(df)
+# }
+# 
+# iNEXT_output <- pbmclapply(My_Large_Data_Set, parallel_rarefaction, mc.cores = Upper_Limit_CPU_Cores)
+# 
+# 
+# My_Large_Data_Set <- list()
+# 
+# for (i in 1:length)
+```
+
+```{r}
+
+# end <- max(sapply(fung_data, sum))
+# 
+# fung_inext_results_nonpooled <- iNEXT(fung_data, nboot=200, endpoint = (end*2))
+# 
+# saveRDS(fung_inext_results_nonpooled, "../outputs/fung_inext_results_nonpooled.rds")
+
+fung_inext_results_nonpooled <- readRDS("../outputs/fung_inext_results_nonpooled.rds")
+
+fung_accum_curve <- ggiNEXT(fung_inext_results_nonpooled) +
+  theme_classic() +
+  ggtitle("Fungi") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(fung_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+#ggsave("../figures/fung_asv_accum_curves_nonpooled.png", limitsize = FALSE, width = 55, height = 6)
+
+
+# attempt to subset inext results
+fnames <- fung_inext_results_nonpooled$DataInfo$site
+
+sub_inext <- function(inext_results, pattern) {
+  new_dat <- list()
+  
+  if (length(pattern)>1) {
+    new_dat$DataInfo <- inext_results$DataInfo[grepl(paste(pattern, collapse = "|"), inext_results$DataInfo$site),]
+    
+    new_dat$iNextEst <- inext_results$iNextEst[new_dat$DataInfo$site]
+    
+    new_dat$AsyEst <- inext_results$AsyEst[grepl(paste(pattern, collapse = "|"), inext_results$AsyEst$Site),]
+    
+  }
+  
+  else {
+      new_dat$DataInfo <- inext_results$DataInfo[grepl(pattern, inext_results$DataInfo$site),]
+  
+  new_dat$iNextEst <- inext_results$iNextEst[new_dat$DataInfo$site]
+  
+  new_dat$AsyEst <- inext_results$AsyEst[grepl(pattern, inext_results$AsyEst$Site),]
+    
+  }
+  
+  
+  class(new_dat) <- "iNEXT"
+   
+  return(new_dat)
+}
+
+# make subsetted inexts
+fung_invert_inext <- sub_inext(fung_inext_results_nonpooled, ".I.")
+
+fung_detrit_inext <- sub_inext(fung_inext_results_nonpooled, ".D.")
+
+fung_air_inext <- sub_inext(fung_inext_results_nonpooled, c("S1", "S2"))
+
+fung_water_inext <- sub_inext(fung_inext_results_nonpooled, c("W02", "WPool"))
+
+
+
+my_accum_plotter <- function(inext_results, title) {
+  pl <- ggiNEXT(inext_results) +
+  theme_classic() +
+  ggtitle(title) +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2),
+        axis.text = element_text(color = "black")) +
+  #scale_shape_manual(values = rep(19, length(fung_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(inext_results$iNextEst)) ) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  #xlim(0,150000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+  
+  return(pl)
+
+}
+
+# make plots 
+fung_inv_plot <- my_accum_plotter(fung_invert_inext, "Fungi, Invertebrates")
+fung_inv_plot <- fung_inv_plot + coord_cartesian(xlim=c(0,30000))
+
+ggsave("../figures/accum_curves/fung_invert_accums.png", fung_inv_plot, width=12, height=7)
+ggsave("../figures/accum_curves/fung_invert_accums.pdf", fung_inv_plot, width=12, height=7)
+
+fung_det_plot <- my_accum_plotter(fung_detrit_inext, "Fungi, Detritus")
+fung_det_plot <- fung_det_plot + coord_cartesian(xlim=c(0,50000))
+
+ggsave("../figures/accum_curves/fung_detritus_accums.png", fung_det_plot, width=27, height=7)
+ggsave("../figures/accum_curves/fung_detritus_accums.pdf", fung_det_plot, width=27, height=7)
+
+fung_wat_plot <- my_accum_plotter(fung_water_inext, "Fungi, Water")
+fung_wat_plot <- fung_wat_plot + coord_cartesian(xlim=c(0,40000))
+
+ggsave("../figures/accum_curves/fung_water_accums.png", fung_wat_plot, width=27, height=7)
+ggsave("../figures/accum_curves/fung_water_accums.pdf", fung_wat_plot, width=27, height=7)
+
+fung_air_plot <- my_accum_plotter(fung_air_inext, "Fungi, Air")
+fung_air_plot <- fung_air_plot + coord_cartesian(xlim=c(0,40000))
+
+ggsave("../figures/accum_curves/fung_air_accums.png", fung_air_plot, width=12, height=7)
+ggsave("../figures/accum_curves/fung_air_accums.pdf", fung_air_plot, width=12, height=7)
+
+#fung_multiplot <- fung_inv_plot + fung_det_plot + fung_wat_plot + fung_air_plot
+
+
+# sub_inext_lowreads <- function(inext_results, threshold) {
+#   new_dat <- list()
+#   
+#   newsamps <- inext_results$DataInfo$site[inext_results$DataInfo$n<threshold]
+#   
+#   new_dat$DataInfo <- inext_results$DataInfo[inext_results$DataInfo$site %in% newsamps,]
+#     
+#   new_dat$iNextEst <- inext_results$iNextEst[new_dat$DataInfo$site]
+#     
+#     new_dat$AsyEst <- inext_results$AsyEst[inext_results$AsyEst$Site %in% newsamps,]
+#   
+#   class(new_dat) <- "iNEXT"
+#    
+#   return(new_dat)
+# }
+
+# 
+# fung_invert_inext_lowreads <- sub_inext_lowreads(fung_invert_inext, 2000)
+# 
+# fung_inv_plot_lowreads <- my_accum_plotter(fung_invert_inext_lowreads, "Fungi, Inverts, Low reads")
+# fung_inv_plot_lowreads <- fung_inv_plot_lowreads + coord_cartesian(xlim=c(0,2500))
+# 
+# ggsave("../figures/accum_curves/lowread_fung_invert_accums.png", fung_inv_plot_lowreads, width=10, height=7)
+# 
+# 
+# fung_detrit_inext_lowreads <- sub_inext_lowreads(fung_detrit_inext, 2000)
+# 
+# fung_det_plot_lowreads <- my_accum_plotter(fung_detrit_inext_lowreads, "Fungi, Detritus, Low reads")
+# fung_det_plot_lowreads <- fung_det_plot_lowreads + coord_cartesian(xlim=c(0,3000))
+# 
+# ggsave("../figures/accum_curves/lowread_fung_detritus_accums.png", fung_det_plot_lowreads, width=10, height=7)
+# 
+# 
+# fung_water_inext_lowreads <- sub_inext_lowreads(fung_water_inext, 2000)
+# 
+# fung_wat_plot_lowreads <- my_accum_plotter(fung_water_inext_lowreads, "Fungi, Water (0.2 and Pooled), Low reads")
+# fung_wat_plot_lowreads <- fung_wat_plot_lowreads + coord_cartesian(xlim=c(0,3000))
+# 
+# ggsave("../figures/accum_curves/lowread_fung_water_accums.png", fung_wat_plot_lowreads, width=15, height=7)
+# 
+# 
+# fung_air_inext_lowreads <- sub_inext_lowreads(fung_air_inext, 2000)
+# 
+# fung_air_plot_lowreads <- my_accum_plotter(fung_air_inext_lowreads, "Fungi, Air, Low reads")
+# fung_air_plot_lowreads <- fung_air_plot_lowreads + coord_cartesian(xlim=c(0,2000))
+# 
+# ggsave("../figures/accum_curves/lowread_fung_air_accums.png", fung_air_plot_lowreads, width=10, height=7)
+```
+
+```{r}
+# bact_end <- max(sapply(bact_data, sum))
+# 
+# bact_inext_results_nonpooled <- iNEXT(bact_data, nboot=200, endpoint = (bact_end*2))
+# 
+# 
+# saveRDS(bact_inext_results_nonpooled, "../outputs/bact_inext_results_nonpooled.rds")
+
+
+bact_inext_results_nonpooled <- readRDS("../outputs/bact_inext_results_nonpooled.rds")
+
+bact_accum_curve <- ggiNEXT(bact_inext_results_nonpooled) +
+  theme_classic() +
+  ggtitle("Bacteria") +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  size = 16,
+                                  face = "bold",
+                                  margin = margin(0,0,20,0)),
+        axis.title.x = element_text(vjust=-2),
+        axis.title.y = element_text(vjust=2)) +
+  #scale_shape_manual(values = rep(19, length(bact_data))) +
+  theme(plot.margin = margin(20,0,20,5)) +
+  scale_shape_manual(values = rep(19, length(bact_data))) +
+  #scale_y_continuous(limits=c(0,600), breaks=seq(0,600, by = 200)) +
+  xlim(0,750000) +
+  guides(shape="none") +
+  xlab("Number of sequences") +
+  ylab("ASV richness")
+
+#ggsave("../figures/bact_asv_accum_curves_nonpooled.png", width = 25, height = 12)
+
+
+# make subsetted inexts
+bact_invert_inext <- sub_inext(bact_inext_results_nonpooled, "_I_")
+
+bact_detrit_inext <- sub_inext(bact_inext_results_nonpooled, "_D_")
+
+bact_air_inext <- sub_inext(bact_inext_results_nonpooled, c("_S1_", "_S2_"))
+
+bact_water_inext <- sub_inext(bact_inext_results_nonpooled, c("W02"))
+
+
+
+# make plots 
+bact_inv_plot <- my_accum_plotter(bact_invert_inext, "Bacteria, Invertebrates")
+bact_inv_plot <- bact_inv_plot + coord_cartesian(xlim=c(0,60000))
+
+ggsave("../figures/accum_curves/bact_invert_accums.png", bact_inv_plot, width=12, height=7)
+ggsave("../figures/accum_curves/bact_invert_accums.pdf", bact_inv_plot, width=12, height=7)
+
+bact_det_plot <- my_accum_plotter(bact_detrit_inext, "Bacteria, Detritus")
+bact_det_plot <- bact_det_plot + coord_cartesian(xlim=c(0,200000))
+
+ggsave("../figures/accum_curves/bact_detritus_accums.png", bact_det_plot, width=31, height=7)
+ggsave("../figures/accum_curves/bact_detritus_accums.pdf", bact_det_plot, width=31, height=7)
+
+bact_wat_plot <- my_accum_plotter(bact_water_inext, "Bacteria, Water")
+bact_wat_plot <- bact_wat_plot + coord_cartesian(xlim=c(0,200000))
+
+ggsave("../figures/accum_curves/bact_water_accums.png", bact_wat_plot, width=18, height=7)
+ggsave("../figures/accum_curves/bact_water_accums.pdf", bact_wat_plot, width=18, height=7)
+
+bact_air_plot <- my_accum_plotter(bact_air_inext, "Bacteria, Air")
+bact_air_plot <- bact_air_plot + coord_cartesian(xlim=c(0,50000))
+
+ggsave("../figures/accum_curves/bact_air_accums.png", bact_air_plot, width=12, height=7)
+ggsave("../figures/accum_curves/bact_air_accums.pdf", bact_air_plot, width=12, height=7)
+
+#bact_multiplot <- bact_inv_plot + bact_det_plot + bact_wat_plot + bact_air_plot
+
+# 
+# bact_invert_inext_lowreads <- sub_inext_lowreads(bact_invert_inext, 20000)
+# 
+# bact_inv_plot_lowreads <- my_accum_plotter(bact_invert_inext_lowreads, "Bacteria, Inverts, Low reads")
+# bact_inv_plot_lowreads <- bact_inv_plot_lowreads + coord_cartesian(xlim=c(0,25000))
+# 
+# ggsave("../figures/accum_curves/lowread_bact_invert_accums.png", bact_inv_plot_lowreads, width=10, height=7)
+# 
+# 
+# bact_detrit_inext_lowreads <- sub_inext_lowreads(bact_detrit_inext, 20000)
+# 
+# bact_det_plot_lowreads <- my_accum_plotter(bact_detrit_inext_lowreads, "Bacteria, Detritus, Low reads")
+# bact_det_plot_lowreads <- bact_det_plot_lowreads + coord_cartesian(xlim=c(0,25000))
+# 
+# ggsave("../figures/accum_curves/lowread_bact_detritus_accums.png", bact_det_plot_lowreads, width=13, height=7)
+# 
+# 
+# bact_water_inext_lowreads <- sub_inext_lowreads(bact_water_inext, 20000)
+# 
+# bact_wat_plot_lowreads <- my_accum_plotter(bact_water_inext_lowreads, "Bacteria, Water (0.2 and Pooled), Low reads")
+# bact_wat_plot_lowreads <- bact_wat_plot_lowreads + coord_cartesian(xlim=c(0,25000))
+# 
+# ggsave("../figures/accum_curves/lowread_bact_water_accums.png", bact_wat_plot_lowreads, width=12, height=7)
+# 
+# 
+# bact_air_inext_lowreads <- sub_inext_lowreads(bact_air_inext, 20000)
+# 
+# bact_air_plot_lowreads <- my_accum_plotter(bact_air_inext_lowreads, "Bacteria, Air, Low reads")
+# bact_air_plot_lowreads <- bact_air_plot_lowreads + coord_cartesian(xlim=c(0,25000))
+# 
+# ggsave("../figures/accum_curves/lowread_bact_air_accums.png", bact_air_plot_lowreads, width=10, height=7)
+
+```
+
+
+
+
+# Check - Regress observed ASV richness against the number of technical replicates
+
+```{r}
+fung_rich <- fung_data != 0
+fung_rich <- t(fung_rich)
+
+fung_rich_dat <- data.frame(sample = rownames(fung_rich),
+                            richness = rowSums(fung_rich))
+
+fung_rep_dat <- data.frame(sample = rownames(fung_rich),
+                           sample2 = rownames(fung_rich))
+
+fung_rep_inv <- fung_rep_dat[grepl(".I.", fung_rep_dat$sample),]
+
+fung_rep_inv <- fung_rep_inv %>% tidyr::separate(sample2, c("Project", "Bro1", "Bro2", "Compartment", "Replicate", "Locus"))
+fung_rep_inv$Bro_name <- paste0(fung_rep_inv$Bro1, fung_rep_inv$Bro2)
+fung_rep_inv$newCompartment <- "Inverts"
+
+fung_rep_inv$repnum <- as.numeric(substring(fung_rep_inv$Replicate, 2, nchar(fung_rep_inv$Replicate)))
+
+new_fung_rep_inv <- dplyr::select(fung_rep_inv, sample, Project, Bro_name, Compartment, Replicate, Locus, newCompartment, repnum)
+
+new_fung_rep_inv <- new_fung_rep_inv %>% group_by(Bro_name) %>% mutate(num = n()) %>% ungroup()
+
+
+fung_rep_other <- fung_rep_dat[!(grepl(".I.", fung_rep_dat$sample)),]
+fung_rep_other <- fung_rep_other %>% tidyr::separate(sample2, c("Project", "Bro1", "Compartment", "Replicate", "Locus"))
+
+fung_rep_other <- fung_rep_other %>%
+  mutate(newCompartment = case_when(
+    grepl("W", Compartment) ~ "Water",
+    grepl("T", Compartment) ~ "Air",
+    grepl("D", Compartment) ~ "Detritus"
+  ))
+
+
+fung_rep_other$Bro1[grepl("S1|S2", fung_rep_other$Bro1)] <- fung_rep_other$Compartment[grepl("S1|S2", fung_rep_other$Bro1)]
+
+fung_rep_other$repnum <- as.numeric(substring(fung_rep_other$Replicate, 2, nchar(fung_rep_other$Replicate)))
+
+fung_rep_other <- fung_rep_other %>% group_by(Bro1) %>% mutate(num = n()) %>% ungroup()
+
+names(new_fung_rep_inv) <- names(fung_rep_other)
+
+all_fung_rep_dat <- rbind(new_fung_rep_inv, fung_rep_other)
+all_fung_rep_dat$bro_and_comp <- paste(all_fung_rep_dat$Bro1, all_fung_rep_dat$newCompartment, sep ="_")
+all_fung_rep_dat$richness <- fung_rich_dat$richness[match(fung_rich_dat$sample, all_fung_rep_dat$sample)]
+
+all_fung_rep_dat$repnum[grepl("BR23.WPool.R.SSU", all_fung_rep_dat$sample)] <- 3
+
+#maxs <- all_fung_rep_dat %>% group_by(bro_and_comp) %>% summarise(max = max(repnum))
+
+saveRDS(all_fung_rep_dat, "../intermediates/fung_replication_data_v2.rds")
+
+# regression
+fung_reg_dat <- fung_reg %>% group_by(bro_and_comp, num) %>% summarize(meanrich = mean(richness))
+names(fung_reg_dat) <- c("bro_and_comp", "number_of_replicates", "mean_richness")
+
+plot(fung_reg_dat$number_of_replicates, fung_reg_dat$mean_richness)
+
+# hist(all_fung_rep_dat$richness)
+# hist(sqrt(all_fung_rep_dat$richness))
+# 
+# hist(all_fung_rep_dat$repnum)
+
+x = lm(fung_reg_dat$mean_richness ~ fung_reg_dat$number_of_replicates)
+summary(x)
+```
+
+```{r}
+bact_rich <- bact_data != 0
+bact_rich <- t(bact_rich)
+
+bact_rich_dat <- data.frame(sample = rownames(bact_rich),
+                            richness = rowSums(bact_rich))
+
+bact_rep_dat <- data.frame(sample = rownames(bact_rich),
+                           sample2 = rownames(bact_rich))
+
+bact_rep_inv <- bact_rep_dat[grepl("_I_", bact_rep_dat$sample),]
+
+bact_rep_inv <- bact_rep_inv %>% tidyr::separate(sample2, c("Project", "Bro1", "Bro2", "Compartment", "Replicate", "Locus", "etc"))
+bact_rep_inv$Bro_name <- paste0(bact_rep_inv$Bro1, bact_rep_inv$Bro2)
+bact_rep_inv$newCompartment <- "Inverts"
+
+bact_rep_inv$repnum <- as.numeric(substring(bact_rep_inv$Replicate, 2, nchar(bact_rep_inv$Replicate)))
+
+bact_rep_inv <- bact_rep_inv %>% group_by(Bro_name) %>% mutate(num = n()) %>% ungroup()
+
+
+new_bact_rep_inv <- dplyr::select(bact_rep_inv, sample, Project, Bro_name, Compartment, Replicate, Locus, etc, newCompartment, repnum, num)
+
+
+bact_rep_other <- bact_rep_dat[!(grepl("_I_", bact_rep_dat$sample)),]
+bact_rep_other <- bact_rep_other %>% tidyr::separate(sample2, c("Project", "Bro1", "Compartment", "Replicate", "Locus", "etc"))
+
+bact_rep_other <- bact_rep_other %>%
+  mutate(newCompartment = case_when(
+    grepl("W", Compartment) ~ "Water",
+    grepl("T", Compartment) ~ "Air",
+    grepl("D", Compartment) ~ "Detritus"
+  ))
+
+bact_rep_other$Bro1[grepl("S1|S2", bact_rep_other$Bro1)] <- bact_rep_other$Compartment[grepl("S1|S2", bact_rep_other$Bro1)]
+
+bact_rep_other$repnum <- as.numeric(substring(bact_rep_other$Replicate, 2, nchar(bact_rep_other$Replicate)))
+
+bact_rep_other <- bact_rep_other %>% group_by(Bro1) %>% mutate(num = n()) %>% ungroup()
+
+names(new_bact_rep_inv) <- names(bact_rep_other)
+
+all_bact_rep_dat <- rbind(new_bact_rep_inv, bact_rep_other)
+all_bact_rep_dat$bro_and_comp <- paste(all_bact_rep_dat$Bro1, all_bact_rep_dat$newCompartment, sep ="_")
+all_bact_rep_dat$richness <- bact_rich_dat$richness[match(bact_rich_dat$sample, all_bact_rep_dat$sample)]
+
+all_bact_rep_dat$repnum[grepl("BR23_WPool_R_", all_bact_rep_dat$sample)] <- 3
+#maxs <- all_bact_rep_dat %>% group_by(bro_and_comp) %>% summarise(max = max(repnum))
+
+saveRDS(all_bact_rep_dat, "../intermediates/bact_replication_data_v2.rds")
+
+
+# regression 
+
+bact_reg_dat <- all_bact_rep_dat %>% group_by(bro_and_comp, num) %>% summarize(meanrich = mean(richness))
+names(bact_reg_dat) <- c("bro_and_comp", "number_of_replicates", "mean_richness")
+
+plot(bact_reg_dat$number_of_replicates, bact_reg_dat$mean_richness)
+
+# hist(all_bact_rep_dat$richness)
+# hist(sqrt(all_bact_rep_dat$richness))
+# 
+# hist(all_bact_rep_dat$repnum)
+
+y = lm(bact_reg_dat$mean_richness ~ bact_reg_dat$number_of_replicates)
+summary(y)
+
+```
+
+
+
+
+

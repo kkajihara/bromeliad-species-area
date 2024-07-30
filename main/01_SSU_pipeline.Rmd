@@ -1,0 +1,340 @@
+---
+title: "SSU_pipeline"
+output: html_document
+date: "2024-05-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dada2)
+packageVersion("dada2")
+
+library(ShortRead)
+library(Biostrings)
+```
+Import seqs and check for primers
+
+```{r}
+path <- "~/hynson_koastore/kaciekaj/rol_sar/demuxed_seqs/SSU/" ## change to test both clermontia and ITS-wildflies
+list.files(path)
+
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+
+# SSU primers used:
+# 18S-82F: 5′-GAAACTGCGAATGGCTC-3′
+# Ek-516R: 5′-ACCAGACTTGCCCTCC-3′ 
+
+allOrients <- function(primer) {
+  # Create all orientations of the input sequence
+  require(Biostrings)
+  dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+  orients <- c(Forward = dna, Complement = Biostrings::complement(dna), Reverse = Biostrings::reverse(dna),
+               RevComp = Biostrings::reverseComplement(dna))
+  return(sapply(orients, toString))  # Convert back to character vector
+}
+
+fwd_primer <- "GAAACTGCGAATGGCTC"
+nchar(fwd_primer) # trim this length from left in dada2
+rev_primer <- "ACCAGACTTGCCCTCC"
+
+
+FWD.orients <- allOrients(fwd_primer)
+REV.orients <- allOrients(rev_primer)
+
+
+primerHits <- function(primer, fn) {
+  # Counts number of reads in which the primer is found
+  nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+  return(sum(nhits > 0))
+}
+
+# check the files randomly
+i = 3
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs[[i]]), 
+      FWD.ReverseReads = sapply(FWD.orients,primerHits, fn = fnRs[[i]]), 
+      REV.ForwardReads = sapply(REV.orients, primerHits,fn = fnFs[[i]]),
+      REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs[[i]])
+      )
+
+
+cutpath <- "~/hynson_koastore/kaciekaj/rol_sar/demuxed_seqs/SSU/trimmed_reads/"
+trim_fnFs <- sort(list.files(cutpath, pattern = "_R1.", full.names = TRUE))
+trim_fnRs <- sort(list.files(cutpath, pattern = "_R2.", full.names = TRUE))
+
+i = 81
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = trim_fnFs[[i]]), 
+      FWD.ReverseReads = sapply(FWD.orients,primerHits, fn = trim_fnRs[[i]]), 
+      REV.ForwardReads = sapply(REV.orients, primerHits,fn = trim_fnFs[[i]]),
+      REV.ReverseReads = sapply(REV.orients, primerHits, fn = trim_fnRs[[i]])
+      )
+
+
+
+## cutadapt code (run on hpc, module load first on interactive session)
+
+# cutadapt -a GAAACTGCGAATGGCTC -A ACCAGACTTGCCCTCC -o test/out.1.fastq -p test/out.2.fastq SAR-S2-T1-R6-SSU_S41_L001_R1_001.fastq.gz SAR-S2-T1-R6-SSU_S41_L001_R2_001.fastq.gz
+
+
+# THIS WORKED 
+#
+# for r1 in *_R1_001.fastq.gz; do
+#     # Define the corresponding reverse read file
+#     r2=${r1/_R1_001.fastq.gz/_R2_001.fastq.gz}
+# 
+#     # Define the output files in the new directory
+#     out_r1=trimmed_reads/${r1/_R1_001.fastq.gz/_R1.trimmed.fastq}
+#     out_r2=trimmed_reads/${r2/_R2_001.fastq.gz/_R2.trimmed.fastq}
+# 
+#     # Run Cutadapt with the specified adapter sequences
+#     cutadapt -a GAAACTGCGAATGGCTC -A ACCAGACTTGCCCTCC --cores 3 --minimum-length 1 -o $out_r1 -p $out_r2 $r1 $r2
+# done
+
+```
+
+dada2
+```{r}
+get.sample.name <- function(fname) strsplit(basename(fname), "[.]")[[1]][1]
+
+names <- sort(list.files(cutpath, pattern = "fastq", full.names = TRUE))
+
+sample.names <- unname(sapply(names, get.sample.name))
+head(sample.names)
+
+plotQualityProfile(names[241:242]) # quality drop off around 170 reverse, 250 forward
+
+
+
+# Place filtered files in filtered/ subdirectory
+fwd_sampnames <- sample.names[grepl("_R1", sample.names)]
+rev_sampnames <- sample.names[grepl("_R2", sample.names)]
+
+# filtFs <- file.path(path, "filtered", paste0(fwd_sampnames, "_F_filt.fastq.gz"))
+# filtRs <- file.path(path, "filtered", paste0(rev_sampnames, "_R_filt.fastq.gz"))
+# names(filtFs) <- fwd_sampnames
+# names(filtRs) <- rev_sampnames
+
+
+pfiltFs <- file.path(path, "filtered_paired", paste0(fwd_sampnames, "_F_filt.fastq.gz"))
+pfiltRs <- file.path(path, "filtered_paired", paste0(rev_sampnames, "_R_filt.fastq.gz"))
+names(pfiltFs) <- fwd_sampnames
+names(pfiltRs) <- rev_sampnames
+
+pairedout <- filterAndTrim(trim_fnFs, pfiltFs, trim_fnRs, pfiltRs, truncLen=c(250,170), trimLeft = nchar(fwd_primer),
+                           matchIDs=TRUE, maxN=0, maxEE=2, truncQ=c(2,2), rm.phix=TRUE,
+                            compress=TRUE, multithread=14) # On Windows set multithread=FALSE
+
+pairedout <- as.data.frame(pairedout)
+pairedout$pct <- pairedout$reads.out/pairedout$reads.in
+summary(pairedout$pct)
+
+# proceed with paired end?
+```
+
+Paired end
+```{r}
+out <- filterAndTrim(fnFs, filtFs, truncLen=250, trimLeft = nchar(fwd_primer),
+              maxN=0, maxEE=2, truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=10) # On Windows set multithread=FALSE
+
+head(out)
+
+out <- as.data.frame(out)
+out$pct <- out$reads.out/out$reads.in
+summary(out$pct)
+# learn error rates
+errF <- learnErrors(pfiltFs, multithread=TRUE)
+errR <- learnErrors(pfiltRs, multithread=TRUE)
+
+single_errF <- learnErrors(filtFs, multithread=TRUE)
+#single_errR <- learnErrors(filtRs, multithread=TRUE)
+
+plotErrors(errF, nominalQ=TRUE)
+plotErrors(errR, nominalQ=TRUE)
+
+
+# sample inference
+pfiltFs <- pfiltFs[file.exists(pfiltFs)]
+pfiltRs <- pfiltRs[file.exists(pfiltRs)]
+
+dadaFs <- dada(pfiltFs, err=errF, multithread=TRUE)
+dadaRs <- dada(pfiltRs, err=errR, multithread=TRUE)
+
+dadaFs[[151]]
+dadaRs[[151]]
+
+
+filtFs <- filtFs[file.exists(filtFs)]
+single_dadaFs <- dada(filtFs, err=single_errF, multithread=TRUE)
+# single_dadaRs <- dada(filtRs, err=single_errR, multithread=TRUE)
+# 
+# single_dadaFs[[151]]
+
+# merge paired reads
+mergers <- mergePairs(dadaFs, pfiltFs, dadaRs, pfiltRs, verbose=TRUE)
+# Inspect the merger data.frame from the first sample
+head(mergers[[1]])
+
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+
+sum(seqtab.nochim)/sum(seqtab)
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(pairedout[,1:2], sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+# If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+head(track)
+
+track_paired <- track
+
+write.csv(track_paired, "../intermediates/track_reads_ssu_paired.csv")
+```
+
+Single end
+```{r}
+out <- filterAndTrim(fnFs, filtFs, truncLen=250, trimLeft = nchar(fwd_primer),
+              maxN=0, maxEE=2, truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=14) # On Windows set multithread=FALSE
+
+head(out)
+
+out <- as.data.frame(out)
+out$pct <- out$reads.out/out$reads.in
+summary(out$pct)
+
+# learn error rates
+single_errF <- learnErrors(filtFs, multithread=TRUE)
+#single_errR <- learnErrors(filtRs, multithread=TRUE)
+plotErrors(single_errF, nominalQ=TRUE)
+
+# sample inference
+filtFs <- filtFs[file.exists(filtFs)]
+single_dadaFs <- dada(filtFs, err=single_errF, multithread=TRUE)
+# single_dadaRs <- dada(filtRs, err=single_errR, multithread=TRUE)
+
+single_dadaFs[[151]]
+
+single_seqtab <- makeSequenceTable(single_dadaFs)
+dim(single_seqtab)
+
+single_seqtab.nochim <- removeBimeraDenovo(single_seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(single_seqtab.nochim)
+
+sum(single_seqtab.nochim)/sum(single_seqtab)
+
+saveRDS(single_seqtab.nochim, "../intermediates/asv_table_singleend_nochimera.rds")
+
+getN <- function(x) sum(getUniques(x))
+track_single <- cbind(out[,1:2], sapply(single_dadaFs, getN), rowSums(single_seqtab.nochim))
+# If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track_single) <- c("input", "filtered", "denoised","nonchim")
+head(track_single)
+track_single$pct_kept <- track_single$nonchim / track_single$input
+
+write.csv(track_single, "../intermediates/track_reads_ssu_single.csv")
+```
+
+```{r}
+### assign taxonomy - must be done in qiime (databases formatted for dada2 not maintained for euks)
+# from qiime - ~40% fungi
+taxtable <- read.delim("../qiime2/working_files/old_taxassignSSU/taxexportSSU/taxonomy.tsv")
+
+qiime_asvtable <- read.delim("../intermediates/SSU_asv_table.tsv")
+qiime_asvtable <- column_to_rownames(qiime_asvtable, "X")
+
+repseqs <- readDNAStringSet("../intermediates/dna-sequences.fasta")
+repseq_df = as.data.frame(repseqs)
+repseq_df <- repseq_df %>% rownames_to_column("feature_id")
+
+# break up taxonomy info into separate columns
+taxtable <- taxtable %>%
+  separate(Taxon, 
+           c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),
+           sep = ";")
+
+tax_fung <- taxtable[grepl("myco|mycete", taxtable$Phylum, ignore.case = TRUE),]
+
+abun_fung <- qiime_asvtable[rownames(qiime_asvtable) %in% tax_fung$Feature.ID,]
+
+
+new_repseq_df <- repseq_df[repseq_df$feature_id %in% tax_fung$Feature.ID,]
+new_repseq_df$ASV <- paste0("ASV", 1:nrow(new_repseq_df))
+
+
+# change to pretty names in asv and tax tables
+rownames(abun_fung) <- new_repseq_df$ASV[match(new_repseq_df$feature_id, rownames(abun_fung))]
+rownames(tax_fung) <- new_repseq_df$ASV[match(new_repseq_df$feature_id, tax_fung$Feature.ID)]
+tax_fung <- rownames_to_column(tax_fung, "ASV")
+
+min(colSums(abun_fung))
+abun_fung_nonzero <- abun_fung[,colSums(abun_fung)>0] # removed 9 samps with only non-fungi
+
+setdiff(colnames(abun_fung), colnames(abun_fung_nonzero))
+# [1] "EXT.NEG.16.SSU"          "EXT.NEG.5.SSU"           "EXT.NEG.7.SSU"          
+# [4] "EXT.NEG.9.SSU"           "P1.PCR.NEG.SSU"          "P2.PCR.NEG.SSU"         
+# [7] "P6.PCR.NEG.SSU"          "SAR.Blank.Wpool.R1.SSU"  "SAR.Blank5.Wpool.R2.SSU"
+
+
+# export
+write.csv(new_repseq_df,"../intermediates/ssu_sequencenames_and_asvnames.csv")
+write.csv(tax_fung, "../intermediates/ssu_fungal_taxonomy_table.csv")
+write.csv(abun_fung_nonzero, "../intermediates/ssu_fungal_asv_table.csv")
+```
+
+
+Comparing a handful of assignments between silva and ncbi
+```{r}
+
+# toy_feat <- sample_n(test, 10)
+# toy_tax <- tax_fung[tax_fung$Feature.ID %in% toy_feat$feature_id,]
+#
+# 
+# hm <- toy_feat
+# hm$feature_id <- paste0(">", hm$feature_id)
+# 
+# D <- do.call(rbind, lapply(seq(nrow(hm)), function(i) t(hm[i, ])))
+# D
+# write.table(D, row.names = FALSE, col.names = FALSE, quote = FALSE)
+# 
+# 
+# nice <- toy_tax
+# nice$Feature.ID <- paste0("ASV", seq_along(1:8))
+# 
+# 
+# ncbi_tax_test <- read.csv("../intermediates/genbank_taxassign_compare.csv")
+# 
+# matchup <- data.frame(asv = nice$Feature.ID,
+#                          id = toy_tax$Feature.ID)
+# 
+# rownames(ncbi_tax_test)[1] <- "ASV7"
+# rownames(ncbi_tax_test)[2] <- "ASV6"
+# rownames(ncbi_tax_test)[3] <- "ASV3"
+# rownames(ncbi_tax_test)[4] <- "ASV5"
+# rownames(ncbi_tax_test)[5] <- "ASV4"
+# rownames(ncbi_tax_test)[6] <- "ASV1"
+# ncbi_tax_test = ncbi_tax_test[c(1:6, 8,9),]
+# rownames(ncbi_tax_test)[7] <- "ASV8"
+# rownames(ncbi_tax_test)[8] <- "ASV2"
+# ncbi_tax_test <- rownames_to_column(ncbi_tax_test, "ASV")
+# 
+# 
+# copy <- ncbi_tax_test
+# copy <- copy[order(copy$ASV),]
+# 
+# nice <- nice[order(nice$Feature.ID),]
+```
+
+
+
+
+
+
+
+

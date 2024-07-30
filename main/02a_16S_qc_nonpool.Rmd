@@ -1,0 +1,380 @@
+---
+title: "16S_qc_nonpool"
+output: html_document
+date: "2024-05-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(data.table)
+library(tibble)
+```
+
+```{r}
+# read in taxonomy file
+tax <- fread("../16S_pipeline_single/16S-pipeline_outputs/Results/main/details/annotations_100.taxonomy",
+             header = T,
+            sep = "\t")
+
+library(tidyr)
+# break up taxonomy info into separate columns
+tax <- tax %>%
+  separate(Taxonomy, 
+           c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),
+           sep = ";")
+
+# keep only bacteria
+tax_b <- tax[tax$Kingdom=="Bacteria",]
+
+saveRDS(tax_b, "../intermediates/bact_asv_taxonomy_table.rds")
+
+abun <- fread(file = "../16S_pipeline_single/16S-pipeline_outputs/Results/main/details/abundance_table_100.shared",
+             drop = c("numOtus", "label", "Group"),
+             header = T)
+
+abun_names <- fread(file = "../16S_pipeline_single/16S-pipeline_outputs/Results/main/details/abundance_table_100.shared",
+                   select = "Group",
+                   colClasses = "character",
+                   header = T)
+
+abun <- abun[, Group := abun_names]
+
+# move group col to front
+abun <- abun %>% dplyr::select(Group, everything())
+
+abun <- column_to_rownames(abun, "Group")
+
+# convert character cols to numeric
+#abun <- as.data.frame(sapply(abun,as.numeric))
+
+# transpose so ASVs are rows, samples are cols
+abun <- as.data.frame(t(abun)) # 11557 asvs, 450 samples
+abun_b <- abun[rownames(abun) %in% tax_b$OTU,] # 11446 asvs
+
+# tidy up sample names
+cleaned_sampnames <- data.frame(current = colnames(abun_b))
+cleaned_sampnames$clean <- apply(cleaned_sampnames, 1, function(x) strsplit(x, "[.]")[[1]][1])
+cleaned_sampnames$clean <- apply(cleaned_sampnames, 1, function(x) strsplit(x, "_(?!.*_)", perl=TRUE)[[1]][1])
+cleaned_sampnames$clean = substr(cleaned_sampnames$clean,1,nchar(cleaned_sampnames$clean)-8) # could have just done this
+
+colnames(abun_b) <- cleaned_sampnames$clean[match(cleaned_sampnames$current, colnames(abun_b))]
+
+
+saveRDS(abun_b, "../intermediates/bact_asv_table.rds")
+```
+
+Decontam
+
+```{r}
+
+library(decontam)
+
+abun_b <- readRDS("../intermediates/bact_asv_table.rds")
+
+colnames(abun_b) <- gsub("pool", "Pool", colnames(abun_b))
+
+snames <- data.frame(sample_names = colnames(abun_b)) 
+snames$copy <- snames$sample_names
+snames <- snames %>% separate(copy, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk", "other"), sep="_")
+
+neg_samps <- snames$sample_names[grepl("NEG", snames$Bromeliad)]
+
+# water filters have additional negatives, decontam separately from other samples
+water_samps <- snames$sample_names[grepl("W", snames$SampType)]
+
+all_watersamps <- c(neg_samps, water_samps)
+
+water_negs <- water_samps[grepl("Blank", water_samps, ignore.case = TRUE)]
+
+all_waternegs <- c(neg_samps, water_negs)
+
+waterfilt_abun <- abun_b[,colnames(abun_b) %in% all_watersamps]
+waterfilt_abun <- waterfilt_abun[rowSums(waterfilt_abun)>0,] # 12954 asvs, 190 samples
+waterfilt_abun <- t(waterfilt_abun)
+
+waterneg_bool <- rownames(waterfilt_abun) %in% all_waternegs
+
+
+water_decontamed <- isContaminant(waterfilt_abun, method = "prevalence", neg = waterneg_bool)
+table(water_decontamed$contaminant) # 47 ASVs identified as contaminants
+
+w_decon_prev05 <- isContaminant(waterfilt_abun, method = "prevalence", neg = waterneg_bool, threshold = 0.5)
+table(w_decon_prev05$contaminant) # 229 asvs
+
+which_ones_water <- rownames(w_decon_prev05[w_decon_prev05$contaminant==TRUE,])
+
+# 12725 asvs, 190 samples
+decontamed_water_abun <- waterfilt_abun[,!(colnames(waterfilt_abun) %in% which_ones_water)]
+
+
+## regular sample decontam
+other_samp_abun <- abun_b[,!(colnames(abun_b) %in% water_samps)]
+other_samp_abun <- other_samp_abun[rowSums(other_samp_abun)>0,] # 21314 asvs, 289 samples
+other_samp_abun <- t(other_samp_abun)
+
+reg_neg_bool <- rownames(other_samp_abun) %in% neg_samps
+
+
+reg_decontamed <- isContaminant(other_samp_abun, method = "prevalence", neg = reg_neg_bool)
+table(reg_decontamed$contaminant) # 32 ASVs identified as contaminants
+
+reg_decon_prev05 <- isContaminant(other_samp_abun, method = "prevalence", neg = reg_neg_bool, threshold = 0.5)
+table(reg_decon_prev05$contaminant) # 60 asvs
+
+which_ones_reg <- rownames(reg_decon_prev05[reg_decon_prev05$contaminant==TRUE,])
+
+# 21254 asvs, 289 samples
+decontamed_other_samp_abun <- other_samp_abun[,!(colnames(other_samp_abun) %in% which_ones_reg)]
+
+
+# take out negative samples? because they were decontamed differently
+decontamed_other_samp_abun_noneg <- decontamed_other_samp_abun[!(rownames(decontamed_other_samp_abun) %in% neg_samps),]
+
+decontamed_water_abun_noneg <- decontamed_water_abun[!(rownames(decontamed_water_abun) %in% neg_samps),]
+
+# merge
+all_decontamed_abun <- plyr::rbind.fill(as.data.frame(decontamed_other_samp_abun_noneg), 
+                         as.data.frame(decontamed_water_abun_noneg))
+
+all_decontamed_abun[is.na(all_decontamed_abun)] <- 0
+
+rownames(all_decontamed_abun) <- c(rownames(decontamed_other_samp_abun_noneg), rownames(decontamed_water_abun_noneg))
+
+all_decontamed_abun <- as.data.frame(t(all_decontamed_abun)) # 27057 asvs, 431 samples
+all_decontamed_abun <- all_decontamed_abun[rowSums(all_decontamed_abun)>0,] # 26964 asvs
+
+# remove pcr positives
+all_decontamed_abun_nopos <- all_decontamed_abun[,!(grepl("POS", colnames(all_decontamed_abun)))]
+
+# remove water blanks
+all_decontamed_abun_nopos <- all_decontamed_abun_nopos[,!(colnames(all_decontamed_abun_nopos) %in% water_negs)] # 413 samples
+all_decontamed_abun_nopos <- all_decontamed_abun_nopos[rowSums(all_decontamed_abun_nopos)>0,] # 26709 asvs
+```
+
+
+Pooling
+
+```{r}
+
+# snames <- data.frame(sample_names = colnames(all_decontamed_abun_nopos)) 
+# snames$copy <- snames$sample_names
+# snames <- snames %>% separate(copy, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk", "other"), sep="_")
+# 
+# 
+# # invert samples need renaming (others are BR10, invert is BR_10)
+# inverts <- snames[snames$TechRep=="I",]
+# inverts$concatbro <- paste0(inverts$Bromeliad, inverts$SampType)
+# inverts$new_sampnames <- paste(inverts$Project, inverts$concatbro, inverts$TechRep, inverts$Locus, inverts$idk, inverts$other, sep = "_")
+# 
+# 
+# new_snames <- data.frame(sample_names = colnames(all_decontamed_abun_nopos)) 
+# new_snames[grepl("_I_", new_snames$sample_names),] <- inverts$new_sampnames[match(inverts$sample_names, new_snames[grepl("_I_", new_snames$sample_names),] )]
+# 
+# new_snames$original <- colnames(all_decontamed_abun_nopos)
+# new_snames$fixed <- new_snames$sample_names
+# 
+# new_snames <- new_snames %>% separate(fixed, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk"), sep="_")
+# 
+# new_snames$broreps <- paste(new_snames$Bromeliad, new_snames$SampType, sep="_")
+# 
+# # keep original samp names for negatives
+# new_snames$sampnames_for_pool <- ifelse(grepl("Blank", new_snames$Bromeliad, ignore.case = TRUE), new_snames$original, new_snames$broreps)
+# 
+# 
+# test_abun <- as.data.frame(t(all_decontamed_abun_nopos))
+# test_abun <- as_tibble(test_abun, rownames="original")
+# 
+# test_abun <- left_join(test_abun, new_snames, by = "original")
+# test_abun <- test_abun %>% group_by(sampnames_for_pool)
+# test_abun <- test_abun %>% dplyr::summarise_if(is.numeric, sum)
+# 
+# test_abun <- column_to_rownames(test_abun, "sampnames_for_pool")
+# 
+# merged_abun <- as.data.frame(t(test_abun))
+# 
+# 
+# #saveRDS(merged_abun, "../intermediates/pooled_bact_asv_table.rds")
+# saveRDS(merged_abun, "../intermediates/pooled_bact_asv_table_decontamed.rds") # 26709 asvs, 130 samples
+# 
+# 
+# abun_b <- merged_abun
+
+# snames <- snames %>%
+#   mutate(type = case_when(
+#     grepl("-D-", sample_names)  ~ "Detritus",
+#     grepl("W02", sample_names)  ~ "Water02",
+#     grepl("-I-", sample_names)  ~ "Invertebrate",
+#     grepl("WPool", sample_names,ignore.case = TRUE)  ~ "WaterPool",
+#     grepl("_S1_|_S2_", sample_names,ignore.case = TRUE)  ~ "Air",
+#     TRUE ~ NA_character_))
+# 
+# snames <- snames %>% separate(sample_names, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk"), sep="_")
+
+
+```
+
+
+
+Laura's culling steps
+
+```{r, echo=FALSE}
+sampsums <- colSums(all_decontamed_abun_nopos)
+asvsums <- rowSums(all_decontamed_abun_nopos)
+```
+
+
+First, she looks at the summary of sequencing depths:
+
+```{r, echo=FALSE}
+# summary of sequencing depths
+summary(asvsums)
+
+```
+
+
+Then, checking how many asvs have no reads and what the minimum non-zero sequencing depth is:
+
+```{r, echo=FALSE}
+
+# check how many samples have no reads and what the minimum non-zero sequencing depth is
+paste("Number of asvs with no reads:",sum(asvsums==0))
+paste("Minimum non-zero sequencing depth:",sort(asvsums)[sum(asvsums==0)+1])
+
+```
+
+As well as whether the maximum may be an outlier:
+```{r, echo=FALSE}
+# is the maximum an outlier?
+tail(sort(asvsums),5)
+```
+
+
+She said in her email that for rare asvs, she usually only excludes those seen in only one sample (unless building a network). The other common option would be something "very low like 10 reads." Here we can look at how many asvs we would exclude at either of those cutoffs.
+
+Plot version:
+
+```{r, echo=FALSE}
+
+plot(sort(log1p(asvsums)), pch=19, xlab="Number of asvs", ylab="Log of Reads", main="asvs by read abundance with cutoffs set at 4, 5, and 10 reads")
+abline(h=log1p(4), lty=2, col="blue") # this one?
+abline(h=log1p(3), lty=2, col="green")
+abline(h=log1p(10), lty=2, col="magenta")
+```
+
+
+If we cull asvs with fewer than 10 reads:
+```{r, echo=FALSE}
+# hypothetical cutoff at 10 reads
+paste("We would remove this many asvs:",sum(asvsums<10))
+paste0("Which is ", round((sum(asvsums<10)/length(asvsums))*100,2), "% of asvs")
+```
+
+If we cull everything with fewer than 6 reads:
+```{r, echo=FALSE}
+# hypothetical cutoff at 6 reads
+paste("We would remove this many asvs:", sum(asvsums<=3))
+paste0("Which is ", round((sum(asvsums<=3)/length(asvsums))*100,2), "% of asvs")
+```
+
+### By Samples
+
+Summary of sequencing depths by sample:
+
+```{r, echo=FALSE}
+# summary of sequencing depths
+summary(sampsums)
+
+```
+
+
+How many samples have no reads and what the minimum non-zero sequencing depth is:
+
+```{r, echo=FALSE}
+
+# check how many samples have no reads and what the minimum non-zero sequencing depth is
+paste("Number of Samples with no reads:",sum(sampsums==0))
+paste("Minimum non-zero sequencing depth:",sort(sampsums)[sum(sampsums==0)+1])
+
+```
+
+Checking the maximum:
+```{r, echo=FALSE}
+# is the maximum an outlier?
+tail(sort(sampsums),5)
+```
+
+Plot version:
+Here we have cutoff lines at 1000 reads in pink, 100 reads in blue, and 10 reads in dark green.
+```{r plots, echo=FALSE}
+plot(sort(log1p(sampsums)), pch=19, xlab="Number of Samples", ylab="Log of Reads", main="Samples by read abundance with cutoffs set at 1000, 100, and 10 reads")
+abline(h=log1p(2000), lty=2, col="blue")
+abline(h=log1p(1300), lty=2, col="magenta") # this one
+abline(h=log1p(1000), lty=2, col="darkgreen") 
+
+```
+
+
+If we cull samples with 1000 or fewer reads:
+```{r, echo=FALSE}
+# hypothetical cutoff at 1000 reads
+paste("We would remove this many Samples:",sum(sampsums<=2900))
+paste0("Which is ", round((sum(sampsums<2900)/length(sampsums))*100,2), "% of Samples")
+```
+
+If we cull samples with 1000 or fewer reads:
+```{r, echo=FALSE}
+# hypothetical cutoff at 1000 reads
+paste("We would remove this many Samples:",sum(sampsums<=1300))
+paste0("Which is ", round((sum(sampsums<1300)/length(sampsums))*100,2), "% of Samples")
+```
+
+
+
+
+```{r cull, echo=FALSE, message=FALSE}
+
+# cull the abundance file (and then reduce the metadata and tax files by samples or asvs that are no longer there)
+
+# original: 413 technical replicates, 26709 asvs
+
+# remove samples with less than 2900 reads
+culled_abun <- all_decontamed_abun_nopos[,colSums(all_decontamed_abun_nopos)>2900] # 11 samples removed, 402 remain
+
+# remove asvs with less than or equal to than 4 reads
+culled_abun <- culled_abun[rowSums(culled_abun)>=4,] # 1661 ASVs removed, 25048 remain
+
+saveRDS(culled_abun, "../intermediates/culled_bact_asv_table_decontamed_nonpooled.rds")
+
+
+# cull tax table
+tax_b <- readRDS("../intermediates/bact_asv_taxonomy_table.rds")
+
+culled_tax <- tax_b[tax_b$OTU %in% rownames(culled_abun),]
+
+saveRDS(culled_tax, "../intermediates/culled_bact_tax_table_nonpooled.rds")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

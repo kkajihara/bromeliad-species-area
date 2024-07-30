@@ -1,0 +1,181 @@
+---
+title: "rarefy_pooled"
+output: html_document
+date: "2024-06-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Goal: rarefy each technical replicate in fungal and bacterial datasets (diff numbers for each locus). 
+
+```{r}
+library(vegan)
+library(dplyr)
+```
+
+```{r}
+# these are the pooled data files
+fung_data <- readRDS("../intermediates/culled_fung_asv_table_decontamed.rds")
+bact_data <- readRDS("../intermediates/culled_bact_asv_table_decontamed.rds")
+
+# this is all replicates
+fung_rep_dat <- readRDS("../intermediates/fung_replication_data_v2.rds")
+bact_rep_dat <- readRDS("../intermediates/bact_replication_data_v2.rds")
+```
+
+Fix air sample pooling
+```{r}
+fung_data <- as.data.frame(t(fung_data))
+
+fixed_fung_data = aggregate(fung_data, 
+                 list(Group=replace(rownames(fung_data),rownames(fung_data) %in% c("S1_T1","S2_T1"), "S1S2_T1")), sum)
+
+fixed_fung_data <- column_to_rownames(fixed_fung_data,"Group")
+
+saveRDS(fixed_fung_data, "../intermediates/culled_fung_asv_table_pooled_air_fixed.rds")
+
+
+bact_data <- as.data.frame(t(bact_data))
+
+fixed_bact_data = aggregate(bact_data, 
+                 list(Group=replace(rownames(bact_data),rownames(bact_data) %in% c("S1_T1","S2_T1"), "S1S2_T1")), sum)
+
+fixed_bact_data <- column_to_rownames(fixed_bact_data,"Group")
+
+saveRDS(fixed_bact_data, "../intermediates/culled_bact_asv_table_pooled_air_fixed.rds")
+```
+
+
+```{r}
+fung_data <- as.data.frame(t(fixed_fung_data))
+
+hist(colSums(fung_data), breaks=60)
+
+
+new_fung <- fung_data[,colSums(fung_data)>=2000]
+new_fung <- new_fung[rowSums(new_fung)>0,]
+
+dim(new_fung)
+
+# data maintained
+dim(new_fung)[1]/dim(fung_data)[1] # asvs
+dim(new_fung)[2]/dim(fung_data)[2] # samples
+
+
+# rarefy
+set.seed(123)
+fung_rare <- rrarefy(t(new_fung), 2000)
+fung_rare <- fung_rare[,colSums(fung_rare)>0]
+
+dim(fung_rare)
+dim(fung_rare)[2]/dim(fung_data)[1] # asvs maintained
+
+fung_rare <- as.data.frame(fung_rare)
+
+saveRDS(fung_rare, "../intermediates/fung_rarefied_pooled_asv_table.rds")
+
+
+# regression
+fung_rich <- fung_rare != 0
+
+fung_rich_dat <- data.frame(sample = rownames(fung_rich),
+                            richness = rowSums(fung_rich))
+
+fung_rep_dat$newname <- paste(fung_rep_dat$Bro1, fung_rep_dat$Compartment, sep ="_")
+
+fung_rep_dat2 <- fung_rep_dat
+fung_rep_dat2$newname <- paste(fung_rep_dat2$Bro1, fung_rep_dat2$Compartment, sep ="_")
+
+fung_rep_dat3 <- fung_rep_dat2 %>% group_by(bro_and_comp, newname, Project, Compartment, newCompartment) %>% summarise()
+fung_rep_dat_noair <- fung_rep_dat3[!grepl("Air", fung_rep_dat3$newCompartment),]
+
+fung_rep_dat_noair$replicate_number <- fung_rep_dat$num[match(fung_rep_dat_noair$newname, fung_rep_dat$newname)]
+
+fung_rep_dat_noair <- fung_rep_dat_noair[fung_rep_dat_noair$newname %in% rownames(fung_rare),]
+
+
+fung_sampdat <- data.frame(sample = rownames(fung_rich),
+                              richness = rowSums(fung_rich))
+
+fung_rep_dat_noair$richness <- fung_sampdat$richness[match(fung_rep_dat_noair$newname, fung_sampdat$sample)]
+
+#fung_reg_dat <- fung_rep_dat_noair %>% group_by(bro_and_comp, num) %>% summarize(mean_readsum = mean(sample_sum))
+#names(fung_reg_dat) <- c("bro_and_comp", "number_of_replicates", "mean_readsum")
+
+
+plot(fung_rep_dat_noair$replicate_number, fung_rep_dat_noair$richness)
+
+
+# hist(all_fung_rep_dat$richness)
+# hist(sqrt(all_fung_rep_dat$richness))
+# 
+# hist(all_fung_rep_dat$repnum)
+
+x = lm(fung_rep_dat_noair$richness ~ fung_rep_dat_noair$replicate_number)
+summary(x)
+```
+
+```{r}
+bact_data <- as.data.frame(t(fixed_bact_data))
+
+
+hist(colSums(bact_data), breaks=25)
+
+
+new_bact <- bact_data[,colSums(bact_data)>=20000]
+new_bact <- new_bact[rowSums(new_bact)>0,]
+
+dim(new_bact)
+
+# data maintained
+dim(new_bact)[1]/dim(bact_data)[1] # asvs
+dim(new_bact)[2]/dim(bact_data)[2] # samples
+
+
+# rarefy
+set.seed(123)
+bact_rare <- rrarefy(t(new_bact), 20000)
+bact_rare <- bact_rare[,colSums(bact_rare)>0]
+
+dim(bact_rare)
+dim(bact_rare)[2]/dim(bact_data)[1] # asvs maintained
+
+saveRDS(bact_rare, "../intermediates/bact_rarefied_pooled_asv_table.rds")
+
+
+# regression
+bact_rich <- bact_rare != 0
+
+bact_rich_dat <- data.frame(sample = rownames(bact_rich),
+                            richness = rowSums(bact_rich))
+
+bact_rep_dat$newname <- paste(bact_rep_dat$Bro1, bact_rep_dat$Compartment, sep ="_")
+
+bact_rep_dat2 <- bact_rep_dat
+bact_rep_dat2$newname <- paste(bact_rep_dat2$Bro1, bact_rep_dat2$Compartment, sep ="_")
+
+bact_rep_dat3 <- bact_rep_dat2 %>% group_by(bro_and_comp, newname, Project, Compartment, newCompartment) %>% summarise()
+bact_rep_dat_noair <- bact_rep_dat3[!grepl("Air", bact_rep_dat3$newCompartment),]
+
+bact_rep_dat_noair$replicate_number <- bact_rep_dat$num[match(bact_rep_dat_noair$newname, bact_rep_dat$newname)]
+
+bact_rep_dat_noair <- bact_rep_dat_noair[bact_rep_dat_noair$newname %in% rownames(bact_rare),]
+
+
+bact_sampdat <- data.frame(sample = rownames(bact_rich),
+                              richness = rowSums(bact_rich))
+
+bact_rep_dat_noair$richness <- bact_sampdat$richness[match(bact_rep_dat_noair$newname, bact_sampdat$sample)]
+
+#bact_reg_dat <- bact_rep_dat_noair %>% group_by(bro_and_comp, num) %>% summarize(mean_readsum = mean(sample_sum))
+#names(bact_reg_dat) <- c("bro_and_comp", "number_of_replicates", "mean_readsum")
+
+
+plot(bact_rep_dat_noair$replicate_number, bact_rep_dat_noair$richness)
+
+
+y = lm(bact_rep_dat_noair$richness ~ bact_rep_dat_noair$replicate_number)
+summary(y)
+```

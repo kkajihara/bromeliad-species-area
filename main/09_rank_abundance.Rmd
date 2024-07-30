@@ -1,0 +1,238 @@
+---
+title: "11_rank_abundance"
+output: html_document
+date: "2024-07-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(patchwork)
+library(ggpubr)
+```
+
+Goal: build ranked-abundance curves on the non-rarefied data by compartment and locus 
+
+```{r}
+fung_data <- readRDS("../intermediates/culled_fung_asv_table_decontamed_nonpooled.rds")
+bact_data <- readRDS("../intermediates/culled_bact_asv_table_decontamed_nonpooled.rds")
+```
+
+```{r}
+fung_inv_data <- fung_data[,grepl(".I.", names(fung_data))]
+fung_inv_data <- fung_inv_data[rowSums(fung_inv_data)>0,]
+
+fung_det_data <- fung_data[,grepl(".D.", names(fung_data))]
+fung_det_data <- fung_det_data[rowSums(fung_det_data)>0,]
+
+fung_water_data <- fung_data[,grepl("W02|WPool", names(fung_data))]
+fung_water_data <- fung_water_data[rowSums(fung_water_data)>0,]
+
+fung_air_data <- fung_data[,grepl("S1|S2", names(fung_data))]
+fung_air_data <- fung_air_data[rowSums(fung_air_data)>0,]
+```
+
+```{r}
+make_rankabun_table <- function(asv_table, compartment) {
+  dat = data.frame(asv_name = rownames(asv_table),
+                   asv_sum = rowSums(asv_table))
+  
+  dat$proportion = dat$asv_sum / sum(dat$asv_sum)
+  dat = arrange(dat, desc(proportion))
+  
+  dat$rank = seq_along(1:length(dat$proportion))
+  
+  dat$compart = rep(compartment, length(dat$proportion))
+  
+  return(dat)
+}
+
+
+fung_inv_summ <- make_rankabun_table(fung_inv_data, "Invertebrates")
+
+fung_det_summ <- make_rankabun_table(fung_det_data, "Detritus")
+
+fung_water_summ <- make_rankabun_table(fung_water_data, "Water")
+
+fung_air_summ <- make_rankabun_table(fung_air_data, "Air")
+
+
+all_fung_dat <- do.call("rbind", list(fung_inv_summ, fung_det_summ, fung_water_summ, fung_air_summ))
+
+
+fung_pl <- ggplot(all_fung_dat, aes(x = rank, y = log(proportion), color = compart)) +
+  geom_point() +
+  scale_color_manual(values = MetBrewer::met.brewer("Tara", 4)) +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),
+        panel.background=element_blank(),
+        legend.text = element_text(size=12, color = "black"),
+        legend.title = element_text(size=13),
+        axis.title = element_text(size=14),
+        axis.text = element_text(size=12, color="black")) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))) +
+  theme(axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0))) +
+  labs(title = "Fungi", x = "Rank" , y = "log(Proportion)", color = "Compartment")
+
+#ggsave("../figures/fung_log_rankabun_collected.png", fung_pl, width=7, height=5)
+
+```
+
+```{r}
+# rankabun_plot <- function(rankabun_table, color = "black", my_title) {
+# 
+#   pl <- ggplot(rankabun_table, aes(x = rank, y = log(proportion))) +
+#     geom_point(color = color) +
+#     theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+#           panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),
+#           panel.background=element_blank()) +
+#           #axis.title = element_text(size=14),
+#           #axis.text = element_text(size=12, color="black"),
+#           #title=element_text(size=14)) +
+#     theme(axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))) +
+#     theme(axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0))) +
+#     labs(title = my_title, x = "Rank" , y = "log(Proportion)")
+#   
+# }
+# 
+# fung_inv_plot <- rankabun_plot(fung_inv_summ, my_title = "Fungi, Invertebrates")
+# fung_det_plot <- rankabun_plot(fung_det_summ, my_title = "Fungi, Detritus")
+# fung_water_plot <- rankabun_plot(fung_water_summ, my_title = "Fungi, Water (W02 and WPool)")
+# fung_air_plot  <- rankabun_plot(fung_air_summ, my_title = "Fungi, Air")
+
+#all_fung_plots = fung_inv_plot + fung_det_plot + fung_water_plot + fung_air_plot
+
+
+#ggsave("../figures/fung_log_rankabun_v1.png", all_fung_plots, width=10, height=7)
+```
+
+
+```{r}
+bact_inv_data <- bact_data[,grepl("_I_", names(bact_data))]
+bact_inv_data <- bact_inv_data[rowSums(bact_inv_data)>0,]
+
+bact_det_data <- bact_data[,grepl("_D_", names(bact_data))]
+bact_det_data <- bact_det_data[rowSums(bact_det_data)>0,]
+
+bact_water_data <- bact_data[,grepl("W02", names(bact_data))]
+bact_water_data <- bact_water_data[rowSums(bact_water_data)>0,]
+
+bact_air_data <- bact_data[,grepl("_S1_|_S2_", names(bact_data))]
+bact_air_data <- bact_air_data[rowSums(bact_air_data)>0,]
+```
+
+```{r}
+
+bact_inv_summ <- make_rankabun_table(bact_inv_data, "Invertebrates")
+
+bact_det_summ <- make_rankabun_table(bact_det_data, "Detritus")
+
+bact_water_summ <- make_rankabun_table(bact_water_data, "Water")
+
+bact_air_summ <- make_rankabun_table(bact_air_data, "Air")
+
+
+all_bact_dat <- do.call("rbind", list(bact_inv_summ, bact_det_summ, bact_water_summ, bact_air_summ))
+
+
+bact_pl <- ggplot(all_bact_dat, aes(x = rank, y = log(proportion), color = compart)) +
+  geom_point() +
+  scale_color_manual(values = MetBrewer::met.brewer("Tara", 4)) +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),
+        panel.background=element_blank(),
+        legend.text = element_text(size=12, color = "black"),
+        legend.title = element_text(size=13),
+        axis.title = element_text(size=14),
+        axis.text = element_text(size=12, color="black")) +
+        #title=element_text(size=14)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))) +
+  theme(axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0))) +
+  labs(title = "Bacteria", x = "Rank" , y = "log(Proportion)", color = "Compartment")
+
+#ggsave("../figures/bact_log_rankabun_collected.png", bact_pl, width=7, height=5)
+
+```
+
+```{r}
+# both plots
+
+my_plots <- ggarrange(fung_pl, bact_pl, common.legend = TRUE, legend = "bottom")
+
+ggsave("../figures/for_manuscript/ranked_abundance_plots.png", width=10, height=5.5)
+ggsave("../figures/for_manuscript/ranked_abundance_plots.pdf", width=10, height=5.5)
+```
+
+
+```{r}
+# bact_inv_plot <- rankabun_plot(bact_inv_summ, color = "violetred4", my_title = "Bacteria, Invertebrates")
+# bact_det_plot <- rankabun_plot(bact_det_summ, color = "violetred4", my_title = "Bacteria, Detritus")
+# bact_water_plot <- rankabun_plot(bact_water_summ, color = "violetred4", my_title = "Bacteria, Water (W02)")
+# bact_air_plot  <- rankabun_plot(bact_air_summ, color = "violetred4", my_title = "Bacteria, Air")
+# 
+# all_bact_plots = bact_inv_plot + bact_det_plot + bact_water_plot + bact_air_plot
+# 
+# ggsave("../figures/bact_log_rankabun_v1.png", all_bact_plots, width=10, height=7)
+
+```
+
+
+## Zoom in?
+
+```{r}
+cut_table <- function(rankabun_table, denominator) {
+  tbl_len <- length(rankabun_table$proportion)
+  
+  new_len = round(tbl_len/denominator, 0)
+  
+  new_tbl <- rankabun_table[1:new_len,]
+  
+  return(new_tbl)
+}
+
+
+fung_inv_zoom <- cut_table(fung_inv_summ, 5)
+fung_inv_zoom_plot <- rankabun_plot(fung_inv_zoom, my_title = "Fungi zoom, Invertebrates")
+
+fung_det_zoom <- cut_table(fung_det_summ,5)
+fung_det_zoom_plot <- rankabun_plot(fung_det_zoom, my_title = "Fungi zoom, Detritus")
+
+fung_water_zoom <- cut_table(fung_water_summ,5)
+fung_water_zoom_plot <- rankabun_plot(fung_water_zoom, my_title = "Fungi zoom, Water (W02 and WPool)")
+
+fung_air_zoom <- cut_table(fung_air_summ,5)
+fung_air_zoom_plot <- rankabun_plot(fung_air_zoom, my_title = "Fungi zoom, Air")
+
+fung_zoom <- fung_inv_zoom_plot + fung_det_zoom_plot + fung_water_zoom_plot + fung_air_zoom_plot
+
+ggsave("../figures/fung_log_rankabun_zoom_v1.png", fung_zoom, width=10, height=7)
+
+```
+
+```{r}
+bact_inv_zoom <- cut_table(bact_inv_summ, 10)
+bact_inv_zoom_plot <- rankabun_plot(bact_inv_zoom, color = "violetred4", my_title = "Bacteria zoom, Invertebrates")
+
+bact_det_zoom <- cut_table(bact_det_summ, 10)
+bact_det_zoom_plot <- rankabun_plot(bact_det_zoom, color = "violetred4", my_title = "Bacteria zoom, Detritus")
+
+bact_water_zoom <- cut_table(bact_water_summ, 10)
+bact_water_zoom_plot <- rankabun_plot(bact_water_zoom, color = "violetred4", my_title = "Bacteria zoom, Water (W02)")
+
+bact_air_zoom <- cut_table(bact_air_summ, 10)
+bact_air_zoom_plot <- rankabun_plot(bact_air_zoom, color = "violetred4", my_title = "Bacteria zoom, Air")
+
+bact_zoom <- bact_inv_zoom_plot + bact_det_zoom_plot + bact_water_zoom_plot + bact_air_zoom_plot
+
+ggsave("../figures/bact_log_rankabun_zoom_v1.png", bact_zoom, width=10, height=7)
+
+```
+
+
+
+
