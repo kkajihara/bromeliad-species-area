@@ -1,0 +1,5 @@
+"","group","group2","statistic","df","adjusted_pval"
+"t","Fungi, Invertebrates (Water volume)","Bacteria, Invertebrates (Water volume)",10.7257746936869,1233.69012184084,0
+"t1","Fungi, Invertebrates (Detritus weight)","Bacteria, Invertebrates (Detritus weight)",-0.318098726267324,1187.32710393453,0.75
+"t2","Fungi, Detritus","Bacteria, Detritus",71.1861704786513,1808.97710824916,0
+"t3","Fungi, Water","Bacteria, Water",169.027533720357,1983.1632721363,0
