@@ -932,7 +932,7 @@ z_plot <- ggplot(slope_df, aes(fill=factor(compartment, levels = c("Detritus", "
                                 y=slope, 
                                 x=factor(locus, levels = c("Fungi", "Bacteria")))) + 
     geom_bar(position="dodge", stat="identity") +
-  scale_fill_manual(values = met.brewer("Juarez")) +
+  scale_fill_manual(values = met.brewer("Cassatt1", 5)) +
   theme_minimal() +
      # theme(panel.grid.major=element_blank(), 
     #panel.grid.minor=element_blank(), 
@@ -942,10 +942,11 @@ z_plot <- ggplot(slope_df, aes(fill=factor(compartment, levels = c("Detritus", "
          legend.text = element_text(size = 13),
          axis.title = element_text (size = 14),
          legend.title = element_text(size = 14)) +
-  labs(x = "Microbe", y = "z-score", fill = "Compartment")
+  labs(x = "Microbe", y = "z-score", fill = "Compartment") +
+  scale_y_continuous(breaks = c(-0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15),limits = c(c(-0.15, 0.15)))
 
-ggsave("../figures/for_manuscript/z_score_plot.pdf", width=8, height=5.5)
-ggsave("../figures/for_manuscript/z_score_plot.png", width=8, height=5.5)
+ggsave("../figures/for_manuscript/z_score_plot2.pdf", width=8, height=5.5)
+ggsave("../figures/for_manuscript/z_score_plot2.png", width=8, height=5.5)
 ```
 
 

@@ -1,5 +1,5 @@
 ---
-title: "16S_qc_nonpool"
+title: "02a_16S_qc"
 output: html_document
 date: "2024-05-20"
 ---
@@ -30,7 +30,7 @@ tax <- tax %>%
 # keep only bacteria
 tax_b <- tax[tax$Kingdom=="Bacteria",]
 
-#saveRDS(tax_b, "../intermediates/bact_asv_taxonomy_table.rds")
+saveRDS(tax_b, "../intermediates/bact_asv_taxonomy_table.rds")
 
 abun <- fread(file = "../16S_pipeline_single/16S-pipeline_outputs/Results/main/details/abundance_table_100.shared",
              drop = c("numOtus", "label", "Group"),
@@ -52,8 +52,8 @@ abun <- column_to_rownames(abun, "Group")
 #abun <- as.data.frame(sapply(abun,as.numeric))
 
 # transpose so ASVs are rows, samples are cols
-abun <- as.data.frame(t(abun)) # 11557 asvs, 450 samples
-abun_b <- abun[rownames(abun) %in% tax_b$OTU,] # 11446 asvs
+abun <- as.data.frame(t(abun)) # 
+abun_b <- abun[rownames(abun) %in% tax_b$asv,] # 
 
 # tidy up sample names
 cleaned_sampnames <- data.frame(current = colnames(abun_b))
@@ -64,7 +64,7 @@ cleaned_sampnames$clean = substr(cleaned_sampnames$clean,1,nchar(cleaned_sampnam
 colnames(abun_b) <- cleaned_sampnames$clean[match(cleaned_sampnames$current, colnames(abun_b))]
 
 
-#saveRDS(abun_b, "../intermediates/bact_asv_table.rds")
+saveRDS(abun_b, "../intermediates/bact_asv_table.rds")
 ```
 
 Decontam
@@ -156,11 +156,76 @@ all_decontamed_abun_nopos <- all_decontamed_abun_nopos[rowSums(all_decontamed_ab
 ```
 
 
-Culling steps
+Pooling
+
+```{r}
+
+snames <- data.frame(sample_names = colnames(all_decontamed_abun_nopos)) 
+snames$copy <- snames$sample_names
+snames <- snames %>% separate(copy, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk", "other"), sep="_")
+
+
+# invert samples need renaming (others are BR10, invert is BR_10)
+inverts <- snames[snames$TechRep=="I",]
+inverts$concatbro <- paste0(inverts$Bromeliad, inverts$SampType)
+inverts$new_sampnames <- paste(inverts$Project, inverts$concatbro, inverts$TechRep, inverts$Locus, inverts$idk, inverts$other, sep = "_")
+
+
+new_snames <- data.frame(sample_names = colnames(all_decontamed_abun_nopos)) 
+new_snames[grepl("_I_", new_snames$sample_names),] <- inverts$new_sampnames[match(inverts$sample_names, new_snames[grepl("_I_", new_snames$sample_names),] )]
+
+new_snames$original <- colnames(all_decontamed_abun_nopos)
+new_snames$fixed <- new_snames$sample_names
+
+new_snames <- new_snames %>% separate(fixed, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk"), sep="_")
+
+new_snames$broreps <- paste(new_snames$Bromeliad, new_snames$SampType, sep="_")
+
+# keep original samp names for negatives
+new_snames$sampnames_for_pool <- ifelse(grepl("Blank", new_snames$Bromeliad, ignore.case = TRUE), new_snames$original, new_snames$broreps)
+
+
+test_abun <- as.data.frame(t(all_decontamed_abun_nopos))
+test_abun <- as_tibble(test_abun, rownames="original")
+
+test_abun <- left_join(test_abun, new_snames, by = "original")
+test_abun <- test_abun %>% group_by(sampnames_for_pool)
+test_abun <- test_abun %>% dplyr::summarise_if(is.numeric, sum)
+
+test_abun <- column_to_rownames(test_abun, "sampnames_for_pool")
+
+merged_abun <- as.data.frame(t(test_abun))
+
+
+#saveRDS(merged_abun, "../intermediates/pooled_bact_asv_table.rds")
+saveRDS(merged_abun, "../intermediates/pooled_bact_asv_table_decontamed.rds") # 26709 asvs, 130 samples
+
+
+abun_b <- merged_abun
+
+# snames <- snames %>%
+#   mutate(type = case_when(
+#     grepl("-D-", sample_names)  ~ "Detritus",
+#     grepl("W02", sample_names)  ~ "Water02",
+#     grepl("-I-", sample_names)  ~ "Invertebrate",
+#     grepl("WPool", sample_names,ignore.case = TRUE)  ~ "WaterPool",
+#     grepl("_S1_|_S2_", sample_names,ignore.case = TRUE)  ~ "Air",
+#     TRUE ~ NA_character_))
+# 
+# snames <- snames %>% separate(sample_names, c("Project", "Bromeliad", "SampType", "TechRep", "Locus", "idk"), sep="_")
+
+
+```
+
+
+
+Laura's culling steps
 
 ```{r, echo=FALSE}
-sampsums <- colSums(all_decontamed_abun_nopos)
-asvsums <- rowSums(all_decontamed_abun_nopos)
+abun_b <- readRDS("../intermediates/pooled_bact_asv_table_decontamed.rds")
+
+sampsums <- colSums(abun_b)
+asvsums <- rowSums(abun_b)
 ```
 
 
@@ -196,9 +261,9 @@ Plot version:
 
 ```{r, echo=FALSE}
 
-plot(sort(log1p(asvsums)), pch=19, xlab="Number of asvs", ylab="Log of Reads", main="asvs by read abundance with cutoffs set at 4, 5, and 10 reads")
-abline(h=log1p(4), lty=2, col="blue") # this one?
-abline(h=log1p(3), lty=2, col="green")
+plot(sort(log1p(asvsums)), pch=19, xlab="Number of asvs", ylab="Log of Reads", main="asvs by read abundance with cutoffs set at 2, 5, and 10 reads")
+abline(h=log1p(2), lty=2, col="blue")
+abline(h=log1p(5), lty=2, col="green") # this one?
 abline(h=log1p(10), lty=2, col="magenta")
 ```
 
@@ -213,8 +278,8 @@ paste0("Which is ", round((sum(asvsums<10)/length(asvsums))*100,2), "% of asvs")
 If we cull everything with fewer than 6 reads:
 ```{r, echo=FALSE}
 # hypothetical cutoff at 6 reads
-paste("We would remove this many asvs:", sum(asvsums<=3))
-paste0("Which is ", round((sum(asvsums<=3)/length(asvsums))*100,2), "% of asvs")
+paste("We would remove this many asvs:", sum(asvsums<=5))
+paste0("Which is ", round((sum(asvsums<=5)/length(asvsums))*100,2), "% of asvs")
 ```
 
 ### By Samples
@@ -248,25 +313,26 @@ Plot version:
 Here we have cutoff lines at 1000 reads in pink, 100 reads in blue, and 10 reads in dark green.
 ```{r plots, echo=FALSE}
 plot(sort(log1p(sampsums)), pch=19, xlab="Number of Samples", ylab="Log of Reads", main="Samples by read abundance with cutoffs set at 1000, 100, and 10 reads")
-abline(h=log1p(2000), lty=2, col="blue")
-abline(h=log1p(1300), lty=2, col="magenta") # this one
-abline(h=log1p(1000), lty=2, col="darkgreen") 
+abline(h=log1p(8000), lty=2, col="blue")
+abline(h=log1p(13000), lty=2, col="magenta") 
+abline(h=log1p(6000), lty=2, col="darkgreen") 
 
+# no need trim 
 ```
 
 
 If we cull samples with 1000 or fewer reads:
 ```{r, echo=FALSE}
 # hypothetical cutoff at 1000 reads
-paste("We would remove this many Samples:",sum(sampsums<=2900))
-paste0("Which is ", round((sum(sampsums<2900)/length(sampsums))*100,2), "% of Samples")
+paste("We would remove this many Samples:",sum(sampsums<=1200))
+paste0("Which is ", round((sum(sampsums<1200)/length(sampsums))*100,2), "% of Samples")
 ```
 
 If we cull samples with 1000 or fewer reads:
 ```{r, echo=FALSE}
 # hypothetical cutoff at 1000 reads
-paste("We would remove this many Samples:",sum(sampsums<=1300))
-paste0("Which is ", round((sum(sampsums<1300)/length(sampsums))*100,2), "% of Samples")
+paste("We would remove this many Samples:",sum(sampsums<=600))
+paste0("Which is ", round((sum(sampsums<600)/length(sampsums))*100,2), "% of Samples")
 ```
 
 
@@ -276,50 +342,26 @@ paste0("Which is ", round((sum(sampsums<1300)/length(sampsums))*100,2), "% of Sa
 
 # cull the abundance file (and then reduce the metadata and tax files by samples or asvs that are no longer there)
 
-# original: 413 technical replicates, 26709 asvs
+# original: 130 pooled samples, 26709 asvs
 
-# remove samples with less than 2900 reads
-culled_abun <- all_decontamed_abun_nopos[,colSums(all_decontamed_abun_nopos)>2900] # 11 samples removed, 402 remain
+# remove asvs with fewer than 5 reads
+culled_abun <- abun_b[rowSums(abun_b)>5,] # 4382 ASVs removed, 22327 remain
 
-# remove asvs with less than or equal to than 4 reads
-culled_abun <- culled_abun[rowSums(culled_abun)>=4,] # 1661 ASVs removed, 25048 remain
-
-saveRDS(culled_abun, "../intermediates/culled_bact_asv_table_decontamed_nonpooled.rds")
+saveRDS(culled_abun, "../intermediates/culled_bact_asv_table_decontamed.rds")
 
 
 # cull tax table
 tax_b <- readRDS("../intermediates/bact_asv_taxonomy_table.rds")
 
-culled_tax <- tax_b[tax_b$OTU %in% rownames(culled_abun),]
+culled_tax <- tax_b[tax_b$asv %in% rownames(culled_abun),]
 
-saveRDS(culled_tax, "../intermediates/culled_bact_tax_table_nonpooled.rds")
+saveRDS(culled_tax, "../intermediates/culled_bact_tax_table.rds")
 
 
 ```
 
 
-plots
 
-```{r}
-# final cutoffs
-# remove samples with less than 2900 reads
-# remove asvs with less than or equal to than 4 reads
-
-pdf("../figures/for_manuscript/fung_log_qc_cutoffs.pdf", width = 10, height=5)
-
-par( mfrow= c(1,2) )
-
-# by asv
-plot(sort(log1p(asvsums)), pch=19, xlab="Number of ASVs", ylab="Log of Reads")
-abline(h=log1p(4), lty=2, col="blue") # this one?
-
-# by sample
-plot(sort(log1p(sampsums)), pch=19, xlab="Number of Samples", ylab="Log of Reads")
-abline(h=log1p(2900), lty=2, col="magenta") # this one
-
-
-dev.off()
-```
 
 
 
