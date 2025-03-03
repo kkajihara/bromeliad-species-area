@@ -947,6 +947,33 @@ z_plot <- ggplot(slope_df, aes(fill=factor(compartment, levels = c("Detritus", "
 
 ggsave("../figures/for_manuscript/z_score_plot2.pdf", width=8, height=5.5)
 ggsave("../figures/for_manuscript/z_score_plot2.png", width=8, height=5.5)
+
+
+# only significant SARs
+sig_sar_df <- slope_df[c(2,5,6),]
+z_plot_sig <- ggplot(sig_sar_df, aes(fill=factor(compartment, levels = c("Detritus", "Water")), 
+                                y=slope, 
+                                x=factor(locus, levels = c("Fungi", "Bacteria")))) + 
+    geom_bar(position = position_dodge2(width = 0.9, preserve = "single"), stat="identity") +
+  scale_fill_manual(values = met.brewer("Cassatt1", 5)) +
+    theme(panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    panel.background=element_blank(),
+    axis.line = element_line(colour="black")) +
+   theme_minimal() +
+     # theme(panel.grid.major=element_blank(), 
+    #panel.grid.minor=element_blank(), 
+    #panel.background=element_blank(), 
+    #axis.line = element_line(colour="black"),
+   theme(axis.text = element_text(color = "black", size=12),
+         legend.text = element_text(size = 13),
+         axis.title = element_text (size = 14),
+         legend.title = element_text(size = 14)) +
+  labs(x = "Microbe", y = "z-score", fill = "Compartment") +
+  scale_y_continuous(breaks = c(-0.1,0,0.1), limits = c(-0.113, 0.111), expand = c(0, 0))
+
+ggsave("../figures/for_manuscript/z_score_plot3.pdf", width=8, height=5.5)
+ggsave("../figures/for_manuscript/z_score_plot3.png", width=8, height=5.5)
 ```
 
 
