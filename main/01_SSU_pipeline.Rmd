@@ -261,6 +261,9 @@ taxtable <- taxtable %>%
 
 tax_fung <- taxtable[grepl("myco|mycete", taxtable$Phylum, ignore.case = TRUE),]
 
+tax_un <- taxtable[grepl("Unassigned", taxtable$Kingdom, ignore.case = TRUE),]
+abun_un <-  qiime_asvtable[rownames(qiime_asvtable) %in% tax_un$Feature.ID,]
+
 abun_fung <- qiime_asvtable[rownames(qiime_asvtable) %in% tax_fung$Feature.ID,]
 
 

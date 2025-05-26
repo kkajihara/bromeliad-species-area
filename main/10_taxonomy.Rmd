@@ -426,7 +426,8 @@ get_asv_names <- function(asv_table, regress_data) {
   dat <- dat[,colSums(dat)>0]
   
   asvnames <- colnames(dat)
-  asvnames <- as.matrix(asvnames)
+  asvnames <- as.data.frame(asvnames)
+  rownames(asvnames) <- asvnames$asvnames
   
   return(asvnames)
 }
@@ -454,19 +455,20 @@ return(r)
 
 }
 
+
+
 ```
 
 ```{r}
 
 fung_asv_names <- lapply(list(fung_inv_regress_dat,
                               fung_det_regress_dat,
-                              fung_water_regress_dat,
-                              fung_air_regress_dat),
+                              fung_water_regress_dat),
                          get_asv_names,
                          asv_table = fung_data)
 
 fung_asv_df <- as.data.frame(multi_merge_matrix(fung_asv_names))
-names(fung_asv_df) <- c("Invertebrates", "Detritus", "Water", "Air")
+names(fung_asv_df) <- c("Invertebrates", "Detritus", "Water")
 
 fung_bool <- apply(fung_asv_df, 2, function(x) ifelse(x!=0, T, F))
 
@@ -474,19 +476,18 @@ fung_euler <- euler(fung_bool)
 fung_eul_plot <-  plot(fung_euler, quantities=TRUE, edges = FALSE, main = "Fungi",
                       fills= met.brewer("Cassatt1",4))
 
-ggsave("../figures/for_manuscript/fung_venn2.png", fung_eul_plot, width = 5, height=5)
-ggsave("../figures/for_manuscript/fung_venn2.pdf", fung_eul_plot, width = 5, height=5)
+ggsave("../figures/for_manuscript/fung_venn_noair.svg", fung_eul_plot, width = 5, height=5)
+#ggsave("../figures/for_manuscript/fung_venn_noair.pdf", fung_eul_plot, width = 5, height=5)
 
 
 bact_asv_names <- lapply(list(bact_inv_regress_dat,
                               bact_det_regress_dat,
-                              bact_water_regress_dat,
-                              bact_air_regress_dat),
+                              bact_water_regress_dat),
                          get_asv_names,
                          asv_table = bact_data)
 
 bact_asv_df <- as.data.frame(multi_merge_matrix(bact_asv_names))
-names(bact_asv_df) <- c("Invertebrates", "Detritus", "Water", "Air")
+names(bact_asv_df) <- c("Invertebrates", "Detritus", "Water")
 
 bact_bool <- apply(bact_asv_df, 2, function(x) ifelse(x!=0, T, F))
 
@@ -495,8 +496,8 @@ bact_eul_plot <-  plot(bact_euler, quantities=TRUE, edges = FALSE, main = "Bacte
                       fills= met.brewer("Cassatt1", 4))
 
 
-ggsave("../figures/for_manuscript/bact_venn2.png", bact_eul_plot, width = 5, height=5)
-ggsave("../figures/for_manuscript/bact_venn2.pdf", bact_eul_plot, width = 5, height=5)
+ggsave("../figures/for_manuscript/bact_venn_noair.svg", bact_eul_plot, width = 5, height=5)
+#ggsave("../figures/for_manuscript/bact_venn_noair.pdf", bact_eul_plot, width = 5, height=5)
 
 ```
 
